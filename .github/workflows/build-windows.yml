@@ -93,6 +93,38 @@ jobs:
           print("Rutas corregidas")
           PY
 
+      - name: Separar componente GPU de Linux
+        run: |
+          cd source
+          python - <<'PY'
+          from pathlib import Path
+
+          root = Path("meson.build")
+          code = root.read_text()
+
+          old = "subdir('mangohud-next/legacy_gpu_wrapper')"
+          new = """if host_machine.system() == 'linux'
+            subdir('mangohud-next/legacy_gpu_wrapper')
+            legacy_gpu_link = mangohud_legacy_gpu_wrapper
+          else
+            legacy_gpu_link = []
+          endif"""
+
+          assert old in code
+          root.write_text(code.replace(old, new, 1))
+
+          src = Path("src/meson.build")
+          code = src.read_text()
+
+          old = "link_with: mangohud_legacy_gpu_wrapper,"
+          new = "link_with: legacy_gpu_link,"
+
+          assert old in code
+          src.write_text(code.replace(old, new, 1))
+
+          print("Componente Linux separado")
+          PY
+
 
       - name: Configurar compilacion
         run: |
