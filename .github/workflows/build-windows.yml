@@ -63,6 +63,36 @@ jobs:
           file.write_text(content.replace(old, new, 1))
           PY
 
+      - name: Corregir rutas de Windows
+        run: |
+          cd source
+          python - <<'PY'
+          from pathlib import Path
+
+          file = Path(
+              "mangohud-next/server/metrics/fdinfo.cpp"
+          )
+          code = file.read_text()
+
+          fixes = {
+              "fds.push_back(entry.path().filename());":
+              "fds.push_back(entry.path().filename().string());",
+
+              "const std::string filename = path.filename();":
+              "const std::string filename = path.filename().string();"
+          }
+
+          for original, fixed in fixes.items():
+              if original not in code:
+                  raise SystemExit(
+                      "No se encontro: " + original
+                  )
+              code = code.replace(original, fixed)
+
+          file.write_text(code)
+          print("Rutas corregidas")
+          PY
+
 
       - name: Configurar compilacion
         run: |
