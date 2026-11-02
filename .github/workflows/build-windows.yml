@@ -125,6 +125,35 @@ jobs:
           print("Componente Linux separado")
           PY
 
+      - name: Corregir DirectX 12 en Windows
+        run: |
+          cd source
+          python - <<'PY'
+          from pathlib import Path
+
+          files = [
+              Path("src/win/d3d12_hook.h"),
+              Path("src/win/kiero.cpp")
+          ]
+
+          original = (
+              '#include "/usr/i686-w64-mingw32/'
+              'include/d3d12.h"'
+          )
+
+          for file in files:
+              code = file.read_text()
+              if original not in code:
+                  raise SystemExit(
+                      f"No se encontro la ruta en {file}"
+                  )
+              code = code.replace(
+                  original, "#include <d3d12.h>"
+              )
+              file.write_text(code)
+              print(f"Corregido: {file}")
+          PY
+
 
       - name: Configurar compilacion
         run: |
