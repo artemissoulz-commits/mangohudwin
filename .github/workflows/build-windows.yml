@@ -1,5 +1,4 @@
-
-name: Compilar MangoHud Windows
+name: MangoHud Windows - Source Port v1
 
 on:
   workflow_dispatch:
@@ -8,15 +7,25 @@ permissions:
   contents: read
 
 jobs:
-  compilar:
+  build:
     runs-on: windows-latest
-
-    defaults:
-      run:
-        shell: msys2 {0}
-
     steps:
-      - name: Preparar Windows y compiladores
+      - name: Descargar archivos del repositorio
+        uses: actions/checkout@v4
+
+      - name: Extraer el codigo actualizado
+        shell: pwsh
+        run: |
+          $zip = "MangoHud-Windows-Source-Port-v1.zip"
+          if (-not (Test-Path -LiteralPath $zip)) {
+            throw "No se encuentra $zip en la raiz del repositorio"
+          }
+          Expand-Archive -LiteralPath $zip -DestinationPath "source" -Force
+          if (-not (Test-Path -LiteralPath "source/meson.build")) {
+            throw "El ZIP no contiene meson.build en su raiz"
+          }
+
+      - name: Preparar herramientas de Windows
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -31,160 +40,27 @@ jobs:
             mingw-w64-x86_64-glslang
             mingw-w64-x86_64-vulkan-loader
 
-      - name: Descargar MangoHud original
-        run: |
-          git clone --depth 1 \
-            https://github.com/flightlessmango/MangoHud.git source
+      - name: Configurar la compilacion
+        shell: msys2 {0}
+        working-directory: source
+        run: >-
+          meson setup build64 --buildtype=release
+          -Dtests=disabled -Dwith_mangohud_next=false
+          -Dwith_x11=disabled -Dwith_wayland=disabled
+          -Dwith_dbus=disabled -Dwith_xnvctrl=disabled
+          -Dmangoplot=disabled
 
-      - name: Adaptar biblioteca Vulkan
-        run: |
-          cd source
-          sed -i \
-            "s/cc.find_library('vulkan', required: true)/cc.find_library('vulkan-1', required: true)/" \
-            meson.build
+      - name: Compilar codigo actualizado
+        shell: msys2 {0}
+        working-directory: source
+        run: meson compile -C build64
 
-      - name: Adaptar libdrm para Windows
-        run: |
-          cd source
-          python - <<'PY'
-          from pathlib import Path
-
-          file = Path("meson.build")
-          content = file.read_text()
-
-          old = "libdrm_dep = dependency('libdrm')"
-          new = """if host_machine.system() == 'windows'
-            libdrm_dep = null_dep
-          else
-            libdrm_dep = dependency('libdrm')
-          endif"""
-
-          assert old in content, "No se encontro libdrm"
-          file.write_text(content.replace(old, new, 1))
-          PY
-
-      - name: Corregir rutas de Windows
-        run: |
-          cd source
-          python - <<'PY'
-          from pathlib import Path
-
-          file = Path(
-              "mangohud-next/server/metrics/fdinfo.cpp"
-          )
-          code = file.read_text()
-
-          fixes = {
-              "fds.push_back(entry.path().filename());":
-              "fds.push_back(entry.path().filename().string());",
-
-              "const std::string filename = path.filename();":
-              "const std::string filename = path.filename().string();"
-          }
-
-          for original, fixed in fixes.items():
-              if original not in code:
-                  raise SystemExit(
-                      "No se encontro: " + original
-                  )
-              code = code.replace(original, fixed)
-
-          file.write_text(code)
-          print("Rutas corregidas")
-          PY
-
-      - name: Separar componente GPU de Linux
-        run: |
-          cd source
-          python - <<'PY'
-          from pathlib import Path
-
-          root = Path("meson.build")
-          code = root.read_text()
-
-          old = "subdir('mangohud-next/legacy_gpu_wrapper')"
-          new = """if host_machine.system() == 'linux'
-            subdir('mangohud-next/legacy_gpu_wrapper')
-            legacy_gpu_link = mangohud_legacy_gpu_wrapper
-          else
-            legacy_gpu_link = []
-          endif"""
-
-          assert old in code
-          root.write_text(code.replace(old, new, 1))
-
-          src = Path("src/meson.build")
-          code = src.read_text()
-
-          old = "link_with: mangohud_legacy_gpu_wrapper,"
-          new = "link_with: legacy_gpu_link,"
-
-          assert old in code
-          src.write_text(code.replace(old, new, 1))
-
-          print("Componente Linux separado")
-          PY
-
-      - name: Corregir DirectX 12 en Windows
-        run: |
-          cd source
-          python - <<'PY'
-          from pathlib import Path
-
-          files = [
-              Path("src/win/d3d12_hook.h"),
-              Path("src/win/kiero.cpp")
-          ]
-
-          original = (
-              '#include "/usr/i686-w64-mingw32/'
-              'include/d3d12.h"'
-          )
-
-          for file in files:
-              code = file.read_text()
-              if original not in code:
-                  raise SystemExit(
-                      f"No se encontro la ruta en {file}"
-                  )
-              code = code.replace(
-                  original, "#include <d3d12.h>"
-              )
-              file.write_text(code)
-              print(f"Corregido: {file}")
-          PY
-
-
-      - name: Configurar compilacion
-        run: |
-          cd source
-          meson setup build64 \
-            --buildtype=release \
-            -Dtests=disabled \
-            -Dwith_mangohud_next=false \
-            -Dwith_x11=disabled \
-            -Dwith_wayland=disabled \
-            -Dwith_dbus=disabled \
-            -Dwith_xnvctrl=disabled \
-            -Dmangoplot=disabled
-
-
-      - name: Compilar MangoHud
-        run: |
-          cd source
-          meson compile -C build64
-
-      - name: Guardar archivos
-        run: |
-          mkdir -p resultado
-          find source/build64 -type f \
-            \( -iname '*.dll' -o -iname '*.exe' \) \
-            -exec cp '{}' resultado/ \;
-          test -n "$(ls -A resultado)"
-
-      - name: Descargar resultado
+      - name: Guardar resultados experimentales
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: MangoHud-Windows-Experimental
-          path: resultado/
-          if-no-files-found: error
+          name: MangoHud-Windows-diagnostico
+          path: |
+            source/build64/meson-logs/meson-log.txt
+            source/build64/src/*.dll
+          if-no-files-found: warn
