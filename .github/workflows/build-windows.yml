@@ -1,4 +1,4 @@
-name: MangoHud Windows - Source Port v1
+name: MangoHud Windows - Source Port v1 (experimental)
 
 on:
   workflow_dispatch:
@@ -39,6 +39,27 @@ jobs:
             mingw-w64-x86_64-python-mako
             mingw-w64-x86_64-glslang
             mingw-w64-x86_64-vulkan-loader
+
+      - name: Corregir Vulkan para Windows
+        shell: msys2 {0}
+        working-directory: source
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          meson_file = Path('meson.build')
+          code = meson_file.read_text(encoding='utf-8')
+          original = "vulkan_lib = cc.find_library('vulkan', required: true)"
+          replacement = """if host_machine.system() == 'windows'
+            vulkan_lib = cc.find_library('vulkan-1', required: true)
+          else
+            vulkan_lib = cc.find_library('vulkan', required: true)
+          endif"""
+          if code.count(original) != 1:
+              raise SystemExit('No se encontro exactamente una declaracion de la biblioteca Vulkan. Revisar el codigo fuente.')
+          meson_file.write_text(code.replace(original, replacement, 1), encoding='utf-8')
+          print('Biblioteca Vulkan adaptada para Windows (vulkan-1).')
+          PY
 
       - name: Configurar la compilacion
         shell: msys2 {0}
