@@ -43,6 +43,26 @@ jobs:
             "s/cc.find_library('vulkan', required: true)/cc.find_library('vulkan-1', required: true)/" \
             meson.build
 
+      - name: Adaptar libdrm para Windows
+        run: |
+          cd source
+          python - <<'PY'
+          from pathlib import Path
+
+          file = Path("meson.build")
+          content = file.read_text()
+
+          old = "libdrm_dep = dependency('libdrm')"
+          new = """if host_machine.system() == 'windows'
+            libdrm_dep = null_dep
+          else
+            libdrm_dep = dependency('libdrm')
+          endif"""
+
+          assert old in content, "No se encontro libdrm"
+          file.write_text(content.replace(old, new, 1))
+          PY
+
       - name: Configurar compilacion
         run: |
           cd source
