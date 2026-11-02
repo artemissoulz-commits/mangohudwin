@@ -19,41 +19,39 @@ jobs:
           pacman -Syu --noconfirm \
             mingw-w64-gcc meson ninja \
             python-mako glslang \
-            mingw-w64-headers git unzip \
+            mingw-w64-headers git \
             ca-certificates pkgconf
 
-      - name: Descargar archivos
+      - name: Descargar MangoHud original
         uses: actions/checkout@v4
+        with:
+          repository: flightlessmango/MangoHud
+          path: source
+          submodules: recursive
 
-      - name: Descomprimir proyecto
-        shell: bash
+      - name: Configurar Windows x64
+        working-directory: source
         run: |
-          mkdir -p extraido
-          ZIP=$(find . -maxdepth 2 -name '*.zip' \
-            -type f | head -n 1)
-          test -n "$ZIP" || exit 1
-          unzip -q "$ZIP" -d extraido
-
-      - name: Compilar para Windows
-        shell: bash
-        run: |
-          FILE=$(find extraido -name mingw64.txt \
-            -type f | head -n 1)
-          test -n "$FILE" || exit 1
-          cd "$(dirname "$FILE")"
-          meson setup --cross-file mingw64.txt \
+          meson setup \
+            --cross-file mingw64.txt \
             build64 --buildtype=release
-          ninja -C build64
-          mkdir -p "$GITHUB_WORKSPACE/resultado"
-          find build64 -type f \( \
-            -iname '*.dll' -o -iname '*.exe' \
-          \) -exec cp '{}' \
-            "$GITHUB_WORKSPACE/resultado/" \;
-          test -n "$(ls -A "$GITHUB_WORKSPACE/resultado")"
 
-      - name: Guardar compilación
+      - name: Compilar
+        working-directory: source
+        run: ninja -C build64
+
+      - name: Buscar archivos compilados
+        shell: bash
+        run: |
+          mkdir -p resultado
+          find source/build64 -type f \
+            \( -iname '*.dll' -o -iname '*.exe' \) \
+            -exec cp '{}' resultado/ \;
+          test -n "$(ls -A resultado)"
+
+      - name: Guardar resultado
         uses: actions/upload-artifact@v4
         with:
-          name: MangoHud-Windows-Experimental
+          name: MangoHud-Windows-x64
           path: resultado/
           if-no-files-found: error
