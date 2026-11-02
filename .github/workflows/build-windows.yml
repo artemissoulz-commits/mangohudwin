@@ -9,39 +9,53 @@ permissions:
 
 jobs:
   compilar:
-    runs-on: ubuntu-latest
-    container:
-      image: archlinux:latest
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
 
     steps:
-      - name: Instalar herramientas
-        run: |
-          pacman -Syu --noconfirm \
-            mingw-w64-gcc meson ninja \
-            python-mako glslang \
-            mingw-w64-headers git \
-            ca-certificates pkgconf
+      - name: Preparar Windows y compiladores
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-meson
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-python-mako
+            mingw-w64-x86_64-glslang
+            mingw-w64-x86_64-vulkan-loader
 
       - name: Descargar MangoHud original
-        uses: actions/checkout@v4
-        with:
-          repository: flightlessmango/MangoHud
-          path: source
-          submodules: recursive
-
-      - name: Configurar Windows x64
-        working-directory: source
         run: |
-          meson setup \
-            --cross-file mingw64.txt \
-            build64 --buildtype=release
+          git clone --depth 1 \
+            https://github.com/flightlessmango/MangoHud.git source
 
-      - name: Compilar
-        working-directory: source
-        run: ninja -C build64
+      - name: Adaptar biblioteca Vulkan
+        run: |
+          cd source
+          sed -i \
+            "s/cc.find_library('vulkan', required: true)/cc.find_library('vulkan-1', required: true)/" \
+            meson.build
 
-      - name: Buscar archivos compilados
-        shell: bash
+      - name: Configurar compilacion
+        run: |
+          cd source
+          meson setup build64 \
+            --buildtype=release \
+            -Dtests=disabled
+
+      - name: Compilar MangoHud
+        run: |
+          cd source
+          meson compile -C build64
+
+      - name: Guardar archivos
         run: |
           mkdir -p resultado
           find source/build64 -type f \
@@ -49,9 +63,9 @@ jobs:
             -exec cp '{}' resultado/ \;
           test -n "$(ls -A resultado)"
 
-      - name: Guardar resultado
+      - name: Descargar resultado
         uses: actions/upload-artifact@v4
         with:
-          name: MangoHud-Windows-x64
+          name: MangoHud-Windows-Experimental
           path: resultado/
           if-no-files-found: error
