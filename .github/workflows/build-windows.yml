@@ -63,12 +63,20 @@ jobs:
           file.write_text(content.replace(old, new, 1))
           PY
 
+
       - name: Configurar compilacion
         run: |
           cd source
           meson setup build64 \
             --buildtype=release \
-            -Dtests=disabled
+            -Dtests=disabled \
+            -Dwith_mangohud_next=false \
+            -Dwith_x11=disabled \
+            -Dwith_wayland=disabled \
+            -Dwith_dbus=disabled \
+            -Dwith_xnvctrl=disabled \
+            -Dmangoplot=disabled
+
 
       - name: Compilar MangoHud
         run: |
