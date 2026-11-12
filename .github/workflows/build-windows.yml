@@ -76,6 +76,41 @@ jobs:
           git -C source tag v0.8.3
 
 
+      - name: Fix missing C++ stream header
+        shell: pwsh
+        working-directory: source
+        run: |
+          $path = 'src/fps_metrics.h'
+
+          if (-not (Test-Path -LiteralPath $path)) {
+            throw "No se encuentra $path"
+          }
+
+          $text = [System.IO.File]::ReadAllText($path)
+
+          if ($text -notmatch '(?m)^#include\s*<sstream>\s*$') {
+            $needle = '#include <iomanip>'
+
+            if (-not $text.Contains($needle)) {
+              throw 'No se encontró el include <iomanip>'
+            }
+
+            $text = $text.Replace(
+              $needle,
+              $needle + "`r`n#include <sstream>"
+            )
+
+            [System.IO.File]::WriteAllText(
+              $path,
+              $text,
+              [System.Text.UTF8Encoding]::new($false)
+            )
+          }
+
+          Write-Host 'Cabecera sstream comprobada.'
+          Select-String -Path $path -Pattern 'iomanip|sstream'
+
+
       - name: Run static Windows port checks
         shell: pwsh
         working-directory: source
