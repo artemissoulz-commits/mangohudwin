@@ -76,6 +76,46 @@ jobs:
           git -C source tag v0.8.3
 
 
+      - name: Fix Winsock2 include order
+        shell: pwsh
+        working-directory: source
+        run: |
+          $path = 'src/net_win32.cpp'
+          $content = [System.IO.File]::ReadAllText($path)
+
+          $alreadyFixed = $content -match '(?s)\A#ifndef WIN32_LEAN_AND_MEAN\s+#define WIN32_LEAN_AND_MEAN'
+
+          if (-not $alreadyFixed) {
+            $pattern = '(?s)\A#include "net\.h"\r?\n#include <winsock2\.h>\r?\n#include <ws2tcpip\.h>\r?\n#include <windows\.h>'
+
+            $replacement = @'
+          #ifndef WIN32_LEAN_AND_MEAN
+          #define WIN32_LEAN_AND_MEAN
+          #endif
+          #include <winsock2.h>
+          #include <ws2tcpip.h>
+          #include <windows.h>
+          #include "net.h"
+          '@
+
+            $regex = [regex]::new($pattern)
+
+            if (-not $regex.IsMatch($content)) {
+              throw 'No se reconoce el orden original de includes en net_win32.cpp'
+            }
+
+            $content = $regex.Replace($content, $replacement.TrimEnd(), 1)
+
+            [System.IO.File]::WriteAllText(
+              $path,
+              $content,
+              [System.Text.UTF8Encoding]::new($false)
+            )
+          }
+
+          Write-Host 'Orden de Winsock corregido.'
+
+
       - name: Fix missing C++ stream header
         shell: pwsh
         working-directory: source
