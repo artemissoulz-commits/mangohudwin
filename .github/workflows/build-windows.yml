@@ -187,7 +187,32 @@ jobs:
 
           Write-Host 'Cabeceras IP Helper corregidas.'
           Select-String -Path $path -Pattern 'winsock2|iphlpapi|netioapi'
+      - name: Fix D3D11 DXGI header order
+        shell: pwsh
+        working-directory: source
+        run: |
+          $path = 'src/win/d3d11_hook.h'
+          $content = [System.IO.File]::ReadAllText($path)
+          $needle = '#include <d3d11.h>'
 
+          if (-not $content.Contains('#include <dxgi.h>')) {
+            if (-not $content.Contains($needle)) {
+              throw 'No se encontró #include <d3d11.h> en d3d11_hook.h'
+            }
+
+            $content = $content.Replace(
+              $needle,
+              "#include <dxgi.h>`r`n$needle"
+            )
+
+            [System.IO.File]::WriteAllText(
+              $path,
+              $content,
+              [System.Text.UTF8Encoding]::new($false)
+            )
+          }
+
+          Get-Content $path -TotalCount 8
 
       - name: Run static Windows port checks
         shell: pwsh
