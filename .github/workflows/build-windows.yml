@@ -75,12 +75,21 @@ jobs:
           git -C source -c user.name='GitHub Actions' -c user.email='actions@github.local' commit -m 'Source archive snapshot'
           git -C source tag v0.8.3
 
+
       - name: Run static Windows port checks
         shell: pwsh
         working-directory: source
         run: |
           python dev/check_windows_port.py
-          $workflow = Get-Content -LiteralPath '..\build-windows.yml' -Raw
+
+          $workflowPath = Join-Path $env:GITHUB_WORKSPACE '.github\workflows\build-windows.yml'
+
+          if (-not (Test-Path -LiteralPath $workflowPath)) {
+            throw "No se encuentra el workflow: $workflowPath"
+          }
+
+          $workflow = Get-Content -LiteralPath $workflowPath -Raw
+
           foreach ($required in @(
             'MangoHud-Windows-Source-Port-v2.zip',
             'MangoHud-Windows-v2-prueba-NO-INSTALAR',
@@ -88,9 +97,12 @@ jobs:
             'meson compile -C build-msvc'
           )) {
             if (-not $workflow.Contains($required)) {
-              throw "El workflow externo no contiene el elemento esperado: $required"
+              throw "Falta en el workflow: $required"
             }
           }
+
+          Write-Host 'Comprobaciones estáticas completadas correctamente.'
+
 
       - name: Install Meson, Ninja and Mako
         shell: pwsh
