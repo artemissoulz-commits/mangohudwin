@@ -20,7 +20,9 @@ jobs:
         with:
           python-version: '3.12'
 
+
       - name: Install glslang for shader compilation
+        id: msys2
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -30,13 +32,24 @@ jobs:
 
       - name: Add glslang to PATH
         shell: pwsh
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
         run: |
-          $glslangDir = 'C:\msys64\ucrt64\bin'
-          if (-not (Test-Path (Join-Path $glslangDir 'glslangValidator.exe'))) {
-            throw "No se encontró glslangValidator en $glslangDir"
+          if ([string]::IsNullOrWhiteSpace($env:MSYS2_LOCATION)) {
+            throw 'La acción MSYS2 no devolvió su ubicación de instalación.'
+          }
+          $glslangDir = Join-Path $env:MSYS2_LOCATION 'ucrt64\bin'
+          $glslangExe = Join-Path $glslangDir 'glslangValidator.exe'
+          if (-not (Test-Path -LiteralPath $glslangExe)) {
+            Write-Host "No se encontró glslangValidator en: $glslangDir"
+            Write-Host "Ubicación MSYS2: $env:MSYS2_LOCATION"
+            Get-ChildItem -LiteralPath $env:MSYS2_LOCATION -Filter 'glslangValidator.exe' -File -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty FullName
+            throw 'No se encontró glslangValidator dentro de MSYS2.'
           }
           Add-Content -Path $env:GITHUB_PATH -Value $glslangDir
-          & (Join-Path $glslangDir 'glslangValidator.exe') --version
+          & $glslangExe --version
+
 
       - name: Configure Microsoft C++ x64 environment
         uses: ilammy/msvc-dev-cmd@v1
