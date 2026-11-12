@@ -1,4 +1,4 @@
-name: MangoHud Windows - Source Port v2 (experimental)
+name: MangoHud Windows - Source Port v2 (Vulkan test package)
 
 on:
   workflow_dispatch:
@@ -9,9 +9,11 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 60
+
     steps:
       - name: Descargar repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Extraer codigo modificado v2
         shell: pwsh
@@ -36,6 +38,7 @@ jobs:
           install: >-
             git
             mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-binutils
             mingw-w64-x86_64-meson
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-python
@@ -82,12 +85,118 @@ jobs:
         working-directory: source
         run: meson compile -C build64
 
-      - name: Guardar diagnostico y DLL experimental si existe
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Preparar paquete experimental Vulkan
+        if: success()
+        shell: msys2 {0}
+        working-directory: source
+        run: |
+          set -euo pipefail
+
+          dll="build64/src/libMangoHud.dll"
+          test -s "$dll"
+
+          # Confirmar que el binario es x64 y expone la entrada requerida por Vulkan.
+          objdump -f "$dll" > dll-file-info.txt
+          objdump -p "$dll" > dll-import-info.txt
+          grep -q 'pei-x86-64' dll-file-info.txt
+          grep -q 'vkNegotiateLoaderLayerInterfaceVersion' dll-import-info.txt
+
+          # Estas son las dependencias MinGW importadas por la DLL compilada.
+          runtime_gcc="/mingw64/bin/libgcc_s_seh-1.dll"
+          runtime_pthread="/mingw64/bin/libwinpthread-1.dll"
+          test -s "$runtime_gcc"
+          test -s "$runtime_pthread"
+          grep -qi 'DLL Name: libgcc_s_seh-1.dll' dll-import-info.txt
+          grep -qi 'DLL Name: libwinpthread-1.dll' dll-import-info.txt
+
+          package="../dist/MangoHud-Windows-v2-Vulkan-prueba"
+          mkdir -p "$package/bin" "$package/vulkan/implicit_layer.d" "$package/config"
+
+          cp "$dll" "$package/bin/"
+          cp "$runtime_gcc" "$runtime_pthread" "$package/bin/"
+          cp data/MangoHud.conf "$package/config/MangoHud.conf"
+          cp LICENSE "$package/LICENSE"
+
+          # El manifiesto original apunta a un .so y a una ruta Linux.
+          # En este paquete usa una ruta relativa hacia la DLL de Windows.
+          manifest="$(find build64/src -maxdepth 1 -type f -name 'MangoHud.*.json' -print -quit)"
+          if [[ -z "$manifest" ]]; then
+            echo "No se encontro el manifiesto Vulkan generado por Meson"
+            exit 1
+          fi
+          manifest_out="$package/vulkan/implicit_layer.d/$(basename "$manifest")"
+          cp "$manifest" "$manifest_out"
+
+          python - "$manifest_out" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          data = json.loads(path.read_text(encoding='utf-8'))
+          layer = data.get('layer')
+          if not isinstance(layer, dict):
+              raise SystemExit('Manifiesto Vulkan invalido: falta el objeto layer')
+          layer['library_path'] = '../../bin/libMangoHud.dll'
+          path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
+
+          # Verificar que la ruta relativa resuelve a la DLL que empaquetamos.
+          resolved = (path.parent / layer['library_path']).resolve()
+          if not resolved.is_file():
+              raise SystemExit(f'La ruta library_path no resuelve: {resolved}')
+          if layer.get('enable_environment', {}).get('MANGOHUD') != '1':
+              raise SystemExit('El manifiesto no conserva MANGOHUD=1')
+          print(f'Manifiesto validado: {path.name}')
+          print(f'DLL referenciada: {resolved}')
+          PY
+
+          cat > "$package/LEEME-EXPERIMENTAL.txt" <<'EOF'
+          MangoHud Windows - paquete de prueba Vulkan (NO ES UN INSTALADOR)
+
+          Este paquete solo permite una primera prueba controlada de la capa Vulkan x64.
+          No es una version terminada ni esta validado para uso diario.
+
+          Limitaciones conocidas de este Source Port v2:
+          - Direct3D 9/10/11/12 no esta validado ni se incluye un proxy DXGI instalable.
+          - El backend nativo de OpenGL para Windows no esta implementado en esta compilacion.
+          - Las metricas de GPU no estan validadas; la deteccion AMD/Intel esta incompleta y NVAPI no esta integrada de forma verificada.
+          - Las rutas Win32 de configuracion/exe/log siguen incompletas; para esta prueba se define MANGOHUD_CONFIGFILE manualmente.
+          - No usar con juegos protegidos por anti-cheat ni instalar globalmente.
+
+          Prueba temporal (solo para una aplicacion Vulkan sin anti-cheat):
+          1. Abre CMD normalmente (no como administrador) en esta carpeta del paquete.
+          2. Ejecuta, sustituyendo la ruta por la carpeta completa del paquete:
+
+             set "VK_IMPLICIT_LAYER_PATH=C:\ruta\MangoHud-Windows-v2-Vulkan-prueba\vulkan\implicit_layer.d"
+             set "MANGOHUD=1"
+             set "MANGOHUD_CONFIGFILE=C:\ruta\MangoHud-Windows-v2-Vulkan-prueba\config\MangoHud.conf"
+             "C:\ruta\a\tu\aplicacion-vulkan.exe"
+
+          3. Estas variables solo afectan a esa ventana de CMD y a los procesos que lance.
+          4. Cierra CMD para descartar la configuracion temporal.
+
+          No se modifican claves del Registro de Windows ni variables globales.
+          EOF
+
+          echo "Paquete Vulkan experimental preparado: $package"
+          find "$package" -type f -printf '%P\n' | sort
+
+      - name: Guardar paquete Vulkan de prueba
+        if: success()
+        uses: actions/upload-artifact@v6
         with:
-          name: MangoHud-Windows-v2-diagnostico-no-instalar
+          name: MangoHud-Windows-v2-Vulkan-prueba-NO-INSTALAR
+          path: dist/MangoHud-Windows-v2-Vulkan-prueba/
+          if-no-files-found: error
+          compression-level: 6
+
+      - name: Guardar diagnostico de compilacion
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: MangoHud-Windows-v2-diagnostico
           path: |
             source/build64/meson-logs/meson-log.txt
+            source/build64/meson-logs/*.txt
             source/build64/src/*.dll
           if-no-files-found: warn
