@@ -213,7 +213,52 @@ jobs:
           }
 
           Get-Content $path -TotalCount 8
+      - name: Avoid DXGI SDK export name conflicts
+        shell: pwsh
+        working-directory: source
+        run: |
+          $path = 'src/proxy/dxgi_proxy.cpp'
+          $content = [System.IO.File]::ReadAllText($path)
 
+          $pattern = '(?m)^#if KIERO_INCLUDE_D3D11\r?\n#include "\.\./win/d3d11_hook\.h"\r?\n#endif\r?\n#if KIERO_INCLUDE_D3D12\r?\n#include "\.\./win/d3d12_hook\.h"\r?\n#endif'
+
+          $replacement = @'
+          // Rename SDK declarations only; keep proxy exports unchanged.
+          #define CreateDXGIFactory MangoHudSdk_CreateDXGIFactory
+          #define CreateDXGIFactory1 MangoHudSdk_CreateDXGIFactory1
+          #define CreateDXGIFactory2 MangoHudSdk_CreateDXGIFactory2
+          #define DXGIGetDebugInterface1 MangoHudSdk_DXGIGetDebugInterface1
+
+          #if KIERO_INCLUDE_D3D11
+          #include "../win/d3d11_hook.h"
+          #endif
+          #if KIERO_INCLUDE_D3D12
+          #include "../win/d3d12_hook.h"
+          #endif
+
+          #undef CreateDXGIFactory
+          #undef CreateDXGIFactory1
+          #undef CreateDXGIFactory2
+          #undef DXGIGetDebugInterface1
+          '@
+
+          $updated = [regex]::Replace($content, $pattern, $replacement, 1)
+
+          if ($updated -eq $content) {
+            if (-not $content.Contains('MangoHudSdk_CreateDXGIFactory')) {
+              throw 'No se encontró el bloque DirectX esperado.'
+            }
+            Write-Host 'El arreglo DXGI ya estaba aplicado.'
+          } else {
+            [System.IO.File]::WriteAllText(
+              $path,
+              $updated,
+              [System.Text.UTF8Encoding]::new($false)
+            )
+            Write-Host 'Conflictos de nombres DXGI corregidos.'
+          }
+
+          Select-String -Path $path -Pattern 'MangoHudSdk_|__declspec\(dllexport\)'
       - name: Run static Windows port checks
         shell: pwsh
         working-directory: source
