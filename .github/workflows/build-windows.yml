@@ -150,6 +150,44 @@ jobs:
           Write-Host 'Cabecera sstream comprobada.'
           Select-String -Path $path -Pattern 'iomanip|sstream'
 
+      - name: Fix Windows IP Helper headers
+        shell: pwsh
+        working-directory: source
+        run: |
+          $path = 'src/net_win32.cpp'
+          $content = [System.IO.File]::ReadAllText($path)
+
+          $marker = 'std::unique_ptr<Net> net = nullptr;'
+          $index = $content.IndexOf($marker)
+
+          if ($index -lt 0) {
+            throw 'No se encontró el inicio del código de net_win32.cpp'
+          }
+
+          $body = $content.Substring($index)
+
+          $header = @'
+          #ifndef WIN32_LEAN_AND_MEAN
+          #define WIN32_LEAN_AND_MEAN
+          #endif
+          #include <winsock2.h>
+          #include <ws2tcpip.h>
+          #include <windows.h>
+          #include <iphlpapi.h>
+          #include "net.h"
+          #include <spdlog/spdlog.h>
+
+          '@
+
+          [System.IO.File]::WriteAllText(
+            $path,
+            $header + $body,
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+          Write-Host 'Cabeceras IP Helper corregidas.'
+          Select-String -Path $path -Pattern 'winsock2|iphlpapi|netioapi'
+
 
       - name: Run static Windows port checks
         shell: pwsh
