@@ -1,4 +1,4 @@
-name: MangoHud Windows - Source Port v1 (experimental)
+name: MangoHud Windows - Source Port v2 (experimental)
 
 on:
   workflow_dispatch:
@@ -10,22 +10,25 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Descargar archivos del repositorio
+      - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      - name: Extraer el codigo actualizado
+      - name: Extraer codigo modificado v2
         shell: pwsh
         run: |
-          $zip = "MangoHud-Windows-Source-Port-v1.zip"
+          $zip = "MangoHud-Windows-Source-Port-v2.zip"
           if (-not (Test-Path -LiteralPath $zip)) {
             throw "No se encuentra $zip en la raiz del repositorio"
           }
           Expand-Archive -LiteralPath $zip -DestinationPath "source" -Force
           if (-not (Test-Path -LiteralPath "source/meson.build")) {
-            throw "El ZIP no contiene meson.build en su raiz"
+            throw "ZIP invalido: falta source/meson.build"
+          }
+          if (-not (Test-Path -LiteralPath "source/dev/check_gpu_headers.py")) {
+            throw "El ZIP no corresponde a Source Port v2"
           }
 
-      - name: Preparar herramientas de Windows
+      - name: Preparar herramientas
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -40,28 +43,31 @@ jobs:
             mingw-w64-x86_64-glslang
             mingw-w64-x86_64-vulkan-loader
 
-      - name: Corregir Vulkan para Windows
+      - name: Verificar encabezados GPU
+        shell: msys2 {0}
+        working-directory: source
+        run: python dev/check_gpu_headers.py
+
+      - name: Corregir el nombre de Vulkan en Windows
         shell: msys2 {0}
         working-directory: source
         run: |
           python - <<'PY'
           from pathlib import Path
-
-          meson_file = Path('meson.build')
-          code = meson_file.read_text(encoding='utf-8')
-          original = "vulkan_lib = cc.find_library('vulkan', required: true)"
-          replacement = """if host_machine.system() == 'windows'
+          p = Path('meson.build')
+          s = p.read_text(encoding='utf-8')
+          old = "vulkan_lib = cc.find_library('vulkan', required: true)"
+          new = """if host_machine.system() == 'windows'
             vulkan_lib = cc.find_library('vulkan-1', required: true)
           else
             vulkan_lib = cc.find_library('vulkan', required: true)
           endif"""
-          if code.count(original) != 1:
-              raise SystemExit('No se encontro exactamente una declaracion de la biblioteca Vulkan. Revisar el codigo fuente.')
-          meson_file.write_text(code.replace(original, replacement, 1), encoding='utf-8')
-          print('Biblioteca Vulkan adaptada para Windows (vulkan-1).')
+          if s.count(old) != 1:
+              raise SystemExit('No se encontro una unica referencia Vulkan a adaptar')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
           PY
 
-      - name: Configurar la compilacion
+      - name: Configurar compilacion Windows
         shell: msys2 {0}
         working-directory: source
         run: >-
@@ -71,16 +77,16 @@ jobs:
           -Dwith_dbus=disabled -Dwith_xnvctrl=disabled
           -Dmangoplot=disabled
 
-      - name: Compilar codigo actualizado
+      - name: Compilar DLL experimental
         shell: msys2 {0}
         working-directory: source
         run: meson compile -C build64
 
-      - name: Guardar resultados experimentales
+      - name: Guardar diagnostico y DLL experimental si existe
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: MangoHud-Windows-diagnostico
+          name: MangoHud-Windows-v2-diagnostico-no-instalar
           path: |
             source/build64/meson-logs/meson-log.txt
             source/build64/src/*.dll
