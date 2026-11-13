@@ -703,7 +703,7 @@ if (-not $proxySource.Contains('MangoHudInitializeDXGIHooks')) {
     if (-not $proxySource.Contains('#include <vector>')) { throw 'DXGI proxy include anchor missing.' }
     $proxySource = $proxySource.Replace(
         '#include <vector>',
-        '#include <vector>' + $nl + '#include <atomic>' + $nl + '#include <cwchar>'
+        '#include <vector>' + $nl + '#include <atomic>' + $nl + '#include <cwchar>' + $nl + '#include <cstdlib>' + $nl + '#include <cstring>'
     )
     $proxySource = $proxySource.Replace(
         'static bool s_disableHooksForHost = false;',
@@ -731,20 +731,38 @@ static DWORD WINAPI initOverlayThread(LPVOID) {
 
     bool initialized = false;
     try {
-        if (GetModuleHandleA("d3d12.dll")) {
+        const char* apiOverride = std::getenv("MANGOHUD_DXGI_API");
+        const bool forceD3D12 = apiOverride && std::strcmp(apiOverride, "d3d12") == 0;
+        const bool forceD3D11 = apiOverride && std::strcmp(apiOverride, "d3d11") == 0;
+        const bool hasD3D11 = GetModuleHandleA("d3d11.dll") != nullptr;
+        const bool hasD3D12 = GetModuleHandleA("d3d12.dll") != nullptr;
+
+        kiero::RenderType::Enum selectedRenderer = kiero::RenderType::None;
+        if (forceD3D12) {
+            selectedRenderer = kiero::RenderType::D3D12;
+        } else if (forceD3D11) {
+            selectedRenderer = kiero::RenderType::D3D11;
+        } else if (hasD3D12) {
+            selectedRenderer = kiero::RenderType::D3D12;
+        } else if (!hasD3D12 && hasD3D11) {
+            selectedRenderer = kiero::RenderType::D3D11;
+        }
+
+        // Kiero owns one active Present renderer per process. Select exactly
+        // one backend to prevent D3D11 and D3D12 hooks from competing.
+        if (selectedRenderer != kiero::RenderType::None &&
+            kiero::init(selectedRenderer) == kiero::Status::Success) {
+            if (selectedRenderer == kiero::RenderType::D3D12) {
 #if KIERO_INCLUDE_D3D12
-            if (kiero::init(kiero::RenderType::D3D12) == kiero::Status::Success) {
                 impl::d3d12::init();
                 initialized = true;
-            }
 #endif
-        } else if (GetModuleHandleA("d3d11.dll")) {
+            } else if (selectedRenderer == kiero::RenderType::D3D11) {
 #if KIERO_INCLUDE_D3D11
-            if (kiero::init(kiero::RenderType::D3D11) == kiero::Status::Success) {
                 impl::d3d11::init();
                 initialized = true;
-            }
 #endif
+            }
         }
     } catch (...) {
         initialized = false;
