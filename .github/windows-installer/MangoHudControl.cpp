@@ -1,20 +1,19 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
+#include <tlhelp32.h>
 #include <string>
 #include <vector>
 #include <algorithm>
 #include <cwctype>
-#include <iterator>
-#include <utility>
 
 namespace {
 constexpr wchar_t kClass[] = L"MangoHudControl";
 constexpr UINT kTrayMessage = WM_APP + 7;
 constexpr UINT_PTR kTimerId = 1;
-constexpr UINT kExitMessage = WM_APP + 8;
-constexpr int ID_TARGET = 1101, ID_AUTO = 1102, ID_ENABLED = 1103, ID_STATUS = 1104;
+constexpr int ID_ENABLED = 1103;
 constexpr int MENU_OPEN = 1, MENU_TOGGLE = 2, MENU_EXIT = 3;
+constexpr wchar_t kSharedStateName[] = L"Local\\MangoHudControlState";
 
 struct AppWindow {
     DWORD pid{};
@@ -22,23 +21,30 @@ struct AppWindow {
     std::wstring title;
 };
 
-HWND g_main{}, g_targetCombo{}, g_autoCheck{}, g_enabledCheck{}, g_status{};
+struct SharedHudState {
+    volatile LONG enabled;
+    volatile LONG activePid;
+};
+
+HWND g_main{}, g_enabledCheck{}, g_status{};
 HANDLE g_overlay{};
 DWORD g_overlayPid{}, g_targetPid{};
 std::wstring g_targetExe, g_targetTitle;
-std::vector<AppWindow> g_apps;
 NOTIFYICONDATAW g_nid{};
-bool g_tray{}, g_autoSwitch{true}, g_enabled{true}, g_updatingCombo{};
+bool g_tray{}, g_enabled{true}, g_targetOpenGL{};
+ULONGLONG g_nextRetry{};
 HFONT g_titleFont{}, g_font{}, g_smallFont{};
 HBRUSH g_bgBrush{};
-HICON g_appIcon{};
+HICON g_appIcon{}, g_trayIcon{};
+HANDLE g_stateMapping{};
+SharedHudState* g_sharedState{};
 
 std::wstring app_dir() {
     std::vector<wchar_t> b(32768);
     DWORD n = GetModuleFileNameW(nullptr, b.data(), static_cast<DWORD>(b.size()));
     if (!n || n >= b.size()) return L".";
     std::wstring p(b.data(), n);
-    size_t s = p.find_last_of(L"\\/");
+    const size_t s = p.find_last_of(L"\\/");
     return s == std::wstring::npos ? L"." : p.substr(0, s);
 }
 
@@ -84,52 +90,162 @@ bool ignored_process(const std::wstring& exeName) {
     return e.find(L"mangohud") != std::wstring::npos;
 }
 
-BOOL CALLBACK collect_windows(HWND hwnd, LPARAM parameter) {
-    if (!IsWindowVisible(hwnd) || (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW))
-        return TRUE;
-
-    wchar_t title[512]{};
-    if (GetWindowTextW(hwnd, title, 512) <= 0)
-        return TRUE;
-
-    DWORD pid = 0;
-    GetWindowThreadProcessId(hwnd, &pid);
-    if (!pid || pid == GetCurrentProcessId())
-        return TRUE;
-
-    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (!process) return TRUE;
-
-    std::vector<wchar_t> image(32768);
-    DWORD length = static_cast<DWORD>(image.size());
-    const BOOL gotImage = QueryFullProcessImageNameW(process, 0, image.data(), &length);
-    CloseHandle(process);
-    if (!gotImage || !length) return TRUE;
-
-    const std::wstring exe = basename(std::wstring(image.data(), length));
-    if (ignored_process(exe)) return TRUE;
-
-    auto& found = *reinterpret_cast<std::vector<AppWindow>*>(parameter);
-    for (auto& existing : found) {
-        if (existing.pid == pid) {
-            if (existing.title.empty()) existing.title = title;
-            return TRUE;
-        }
-    }
-    found.push_back({pid, exe, title});
-    return TRUE;
-}
-
 void set_status(const std::wstring& message) {
     if (g_status) SetWindowTextW(g_status, message.c_str());
 }
 
-std::wstring target_label(const AppWindow& app) {
-    std::wstring label = app.title.empty() ? app.exe : app.title;
-    label += L"  (";
-    label += app.exe;
-    label += L")";
-    return label;
+void set_shared_enabled(bool enabled) {
+    g_enabled = enabled;
+    if (g_sharedState)
+        InterlockedExchange(&g_sharedState->enabled, enabled ? 1 : 0);
+    if (g_enabledCheck)
+        SendMessageW(g_enabledCheck, BM_SETCHECK, enabled ? BST_CHECKED : BST_UNCHECKED, 0);
+}
+
+void set_shared_target(DWORD pid) {
+    if (g_sharedState)
+        InterlockedExchange(&g_sharedState->activePid, static_cast<LONG>(pid));
+}
+
+void init_shared_state() {
+    g_stateMapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
+        0, sizeof(SharedHudState), kSharedStateName);
+    if (!g_stateMapping) return;
+    g_sharedState = static_cast<SharedHudState*>(
+        MapViewOfFile(g_stateMapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(SharedHudState)));
+    if (!g_sharedState) {
+        CloseHandle(g_stateMapping);
+        g_stateMapping = nullptr;
+        return;
+    }
+    InterlockedExchange(&g_sharedState->enabled, 1);
+    InterlockedExchange(&g_sharedState->activePid, 0);
+}
+
+bool query_process(DWORD pid, AppWindow& app) {
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!process) return false;
+    std::vector<wchar_t> image(32768);
+    DWORD length = static_cast<DWORD>(image.size());
+    const BOOL ok = QueryFullProcessImageNameW(process, 0, image.data(), &length);
+    CloseHandle(process);
+    if (!ok || !length) return false;
+
+    app.pid = pid;
+    app.exe = basename(std::wstring(image.data(), length));
+    return !app.exe.empty();
+}
+
+bool process_has_module(DWORD pid, const wchar_t* moduleName) {
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+    if (snapshot == INVALID_HANDLE_VALUE) return false;
+
+    MODULEENTRY32W entry{};
+    entry.dwSize = sizeof(entry);
+    bool found = false;
+    if (Module32FirstW(snapshot, &entry)) {
+        do {
+            if (_wcsicmp(entry.szModule, moduleName) == 0) {
+                found = true;
+                break;
+            }
+        } while (Module32NextW(snapshot, &entry));
+    }
+    CloseHandle(snapshot);
+    return found;
+}
+
+bool known_opengl_app(const std::wstring& exeName) {
+    const std::wstring e = lower(exeName);
+    return e.find(L"firestorm") != std::wstring::npos ||
+        e.find(L"secondlife") != std::wstring::npos ||
+        e.find(L"alchemy") != std::wstring::npos ||
+        e.find(L"singularity") != std::wstring::npos ||
+        e.find(L"kokua") != std::wstring::npos ||
+        e.find(L"coolvlviewer") != std::wstring::npos;
+}
+
+bool inject_mangohud_dll(DWORD pid) {
+    if (process_has_module(pid, L"MangoHud.dll")) return true;
+
+    const std::wstring dllPath = app_dir() + L"\\bin\\MangoHud.dll";
+    if (GetFileAttributesW(dllPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        set_status(L"No se encuentra bin\\MangoHud.dll");
+        return false;
+    }
+
+    HANDLE process = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
+        PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, FALSE, pid);
+    if (!process) {
+        const DWORD error = GetLastError();
+        wchar_t message[160]{};
+        swprintf_s(message, L"No se pudo acceder a la aplicación (error %lu)", error);
+        set_status(message);
+        return false;
+    }
+
+    BOOL wow64 = FALSE;
+    if (IsWow64Process(process, &wow64) && wow64) {
+        CloseHandle(process);
+        set_status(L"La aplicación es de 32 bits; esta versión es x64");
+        return false;
+    }
+
+    const size_t bytes = (dllPath.size() + 1) * sizeof(wchar_t);
+    void* remotePath = VirtualAllocEx(process, nullptr, bytes,
+        MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!remotePath) {
+        const DWORD error = GetLastError();
+        CloseHandle(process);
+        wchar_t message[160]{};
+        swprintf_s(message, L"No se pudo preparar la conexión (error %lu)", error);
+        set_status(message);
+        return false;
+    }
+
+    SIZE_T written = 0;
+    if (!WriteProcessMemory(process, remotePath, dllPath.c_str(), bytes, &written) ||
+        written != bytes) {
+        const DWORD error = GetLastError();
+        VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+        CloseHandle(process);
+        wchar_t message[160]{};
+        swprintf_s(message, L"No se pudo enviar MangoHud (error %lu)", error);
+        set_status(message);
+        return false;
+    }
+
+    HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+    auto loadLibrary = reinterpret_cast<LPTHREAD_START_ROUTINE>(
+        GetProcAddress(kernel32, "LoadLibraryW"));
+    HANDLE thread = loadLibrary ? CreateRemoteThread(process, nullptr, 0,
+        loadLibrary, remotePath, 0, nullptr) : nullptr;
+    if (!thread) {
+        const DWORD error = GetLastError();
+        VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+        CloseHandle(process);
+        wchar_t message[160]{};
+        swprintf_s(message, L"No se pudo iniciar el hook (error %lu)", error);
+        set_status(message);
+        return false;
+    }
+
+    const DWORD waitResult = WaitForSingleObject(thread, 15000);
+    DWORD moduleHandle = 0;
+    const bool loaded = waitResult == WAIT_OBJECT_0 &&
+        GetExitCodeThread(thread, &moduleHandle) && moduleHandle != 0;
+    const DWORD error = GetLastError();
+    CloseHandle(thread);
+    VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+    CloseHandle(process);
+
+    if (!loaded) {
+        wchar_t message[160]{};
+        swprintf_s(message, L"No se pudo cargar MangoHud (error %lu)", error);
+        set_status(message);
+        return false;
+    }
+    return true;
 }
 
 BOOL CALLBACK close_overlay_window(HWND hwnd, LPARAM parameter) {
@@ -142,32 +258,25 @@ BOOL CALLBACK close_overlay_window(HWND hwnd, LPARAM parameter) {
     return TRUE;
 }
 
-void stop_overlay(bool announce = true) {
-    if (g_overlay) {
-        if (g_overlayPid) EnumWindows(close_overlay_window, static_cast<LPARAM>(g_overlayPid));
-        if (WaitForSingleObject(g_overlay, 1200) == WAIT_TIMEOUT) {
-            TerminateProcess(g_overlay, 0);
-            WaitForSingleObject(g_overlay, 800);
-        }
-        CloseHandle(g_overlay);
-        g_overlay = nullptr;
+void stop_overlay() {
+    if (!g_overlay) return;
+    if (g_overlayPid) EnumWindows(close_overlay_window, static_cast<LPARAM>(g_overlayPid));
+    if (WaitForSingleObject(g_overlay, 1000) == WAIT_TIMEOUT) {
+        TerminateProcess(g_overlay, 0);
+        WaitForSingleObject(g_overlay, 800);
     }
+    CloseHandle(g_overlay);
+    g_overlay = nullptr;
     g_overlayPid = 0;
-    if (announce && g_enabled) set_status(L"HUD pausado");
 }
 
 bool start_overlay() {
-    if (!g_enabled) return false;
-    if (g_targetExe.empty()) {
-        set_status(L"Abre Firestorm u otra aplicación compatible");
-        return false;
-    }
-    if (g_overlay)
-        stop_overlay(false);
+    if (!g_enabled || g_targetExe.empty()) return false;
+    if (g_overlay) stop_overlay();
 
     const std::wstring exe = app_dir() + L"\\tools\\MangoHud.exe";
     if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
-        set_status(L"No se encuentra MangoHud.exe en la instalación");
+        set_status(L"No se encuentra tools\\MangoHud.exe");
         return false;
     }
 
@@ -189,14 +298,13 @@ bool start_overlay() {
         GetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", oldValue.data(), oldLength) > 0;
 
     if (useConfig && !SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", configPath.c_str())) {
-        wchar_t error[128]{};
-        swprintf_s(error, L"No se pudo cargar la configuración (error %lu)", GetLastError());
-        set_status(error);
+        set_status(L"No se pudo cargar la configuración");
         return false;
     }
 
+    const std::wstring workingDirectory = app_dir();
     const BOOL created = CreateProcessW(exe.c_str(), mutableCommand.data(), nullptr, nullptr,
-        FALSE, CREATE_NO_WINDOW, nullptr, app_dir().c_str(), &startup, &process);
+        FALSE, CREATE_NO_WINDOW, nullptr, workingDirectory.c_str(), &startup, &process);
 
     if (useConfig) {
         if (hadOld) SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", oldValue.data());
@@ -204,107 +312,105 @@ bool start_overlay() {
     }
 
     if (!created) {
-        wchar_t error[128]{};
-        swprintf_s(error, L"No se pudo iniciar el HUD (error %lu)", GetLastError());
-        set_status(error);
+        const DWORD error = GetLastError();
+        wchar_t message[160]{};
+        swprintf_s(message, L"No se pudo iniciar el HUD (error %lu)", error);
+        set_status(message);
         return false;
     }
 
     CloseHandle(process.hThread);
     g_overlay = process.hProcess;
     g_overlayPid = process.dwProcessId;
-    set_status(L"HUD activo · " + (g_targetTitle.empty() ? g_targetExe : g_targetTitle));
+    g_nextRetry = GetTickCount64() + 4000;
     return true;
 }
 
-void set_target(const AppWindow& app, bool automatic) {
-    const bool changed = app.pid != g_targetPid;
-    g_targetPid = app.pid;
-    g_targetExe = app.exe;
-    g_targetTitle = app.title;
-    if (changed && g_enabled) start_overlay();
-    else if (!g_overlay && g_enabled) start_overlay();
-
-    if (automatic && g_overlay) set_status(L"HUD activo · " + (g_targetTitle.empty() ? g_targetExe : g_targetTitle));
+void clear_target() {
+    stop_overlay();
+    g_targetPid = 0;
+    g_targetExe.clear();
+    g_targetTitle.clear();
+    g_targetOpenGL = false;
+    set_shared_target(0);
 }
 
-void update_combo_selection() {
-    if (!g_targetCombo) return;
-    g_updatingCombo = true;
-    SendMessageW(g_targetCombo, CB_RESETCONTENT, 0, 0);
-    int selected = CB_ERR;
-    for (const auto& app : g_apps) {
-        const std::wstring label = target_label(app);
-        const LRESULT index = SendMessageW(g_targetCombo, CB_ADDSTRING, 0,
-            reinterpret_cast<LPARAM>(label.c_str()));
-        if (index >= 0) {
-            SendMessageW(g_targetCombo, CB_SETITEMDATA, static_cast<WPARAM>(index),
-                static_cast<LPARAM>(app.pid));
-            if (app.pid == g_targetPid) selected = static_cast<int>(index);
-        }
-    }
-    if (selected != CB_ERR) SendMessageW(g_targetCombo, CB_SETCURSEL, selected, 0);
-    else if (!g_apps.empty()) SendMessageW(g_targetCombo, CB_SETCURSEL, 0, 0);
-    g_updatingCombo = false;
-}
-
-bool same_apps(const std::vector<AppWindow>& a, const std::vector<AppWindow>& b) {
-    if (a.size() != b.size()) return false;
-    for (size_t i = 0; i < a.size(); ++i) {
-        if (a[i].pid != b[i].pid || a[i].exe != b[i].exe || a[i].title != b[i].title)
-            return false;
-    }
-    return true;
-}
-
-void refresh_apps() {
-    std::vector<AppWindow> found;
-    EnumWindows(collect_windows, reinterpret_cast<LPARAM>(&found));
-    std::sort(found.begin(), found.end(), [](const AppWindow& a, const AppWindow& b) {
-        return lower(a.exe) < lower(b.exe);
-    });
-    const bool changed = !same_apps(g_apps, found);
-    const DWORD previousTargetPid = g_targetPid;
-    g_apps = std::move(found);
-
-    DWORD foregroundPid = 0;
+void refresh_foreground() {
     HWND foreground = GetForegroundWindow();
-    if (foreground) GetWindowThreadProcessId(foreground, &foregroundPid);
+    if (!foreground) return;
 
-    bool targetStillRunning = false;
-    for (const auto& app : g_apps) if (app.pid == g_targetPid) targetStillRunning = true;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(foreground, &pid);
+    // Opening the control window must not steal the target from the game.
+    if (!pid || pid == GetCurrentProcessId()) return;
 
-    if (g_autoSwitch) {
-        for (const auto& app : g_apps) {
-            if (app.pid == foregroundPid) {
-                if (app.pid != g_targetPid) set_target(app, true);
-                break;
-            }
-        }
+    AppWindow app{};
+    if (!query_process(pid, app)) return;
+    wchar_t title[512]{};
+    GetWindowTextW(foreground, title, 512);
+    app.title = title;
+
+    if (ignored_process(app.exe)) {
+        if (g_targetPid) clear_target();
+        set_status(L"Esperando una aplicación compatible");
+        return;
     }
 
-    if (!targetStillRunning && g_targetPid) {
-        bool foundTarget = false;
-        for (const auto& app : g_apps) if (app.pid == g_targetPid) foundTarget = true;
-        if (!foundTarget) {
-            stop_overlay(false);
-            g_targetPid = 0;
-            g_targetExe.clear();
-            g_targetTitle.clear();
-        }
+    const bool changed = app.pid != g_targetPid;
+    if (changed) {
+        stop_overlay();
+        g_targetPid = app.pid;
+        g_targetExe = app.exe;
+        g_targetTitle = app.title;
+        g_targetOpenGL = false;
+        g_nextRetry = 0;
+    } else {
+        g_targetTitle = app.title;
     }
 
-    if (!g_targetPid && !g_autoSwitch)
-        set_status(L"Selecciona una aplicación detectada");
-    else if (!g_targetPid && !g_apps.empty() && g_autoSwitch)
-        set_status(L"Activa una aplicación para iniciar el HUD");
+    set_shared_target(g_enabled ? app.pid : 0);
+    if (!g_enabled) {
+        set_status(L"HUD pausado");
+        return;
+    }
 
-    if (changed || previousTargetPid != g_targetPid ||
-        (g_targetCombo && SendMessageW(g_targetCombo, CB_GETCOUNT, 0, 0) != static_cast<LRESULT>(g_apps.size())))
-        update_combo_selection();
+    const bool hasOpenGL = process_has_module(app.pid, L"opengl32.dll");
+    if (hasOpenGL || known_opengl_app(app.exe))
+        g_targetOpenGL = true;
 
-    if (g_apps.empty() && !g_targetPid)
-        set_status(L"Esperando a que abras una aplicación compatible");
+    const std::wstring displayName = app.title.empty() ? app.exe : app.title;
+    if (g_targetOpenGL) {
+        if (g_overlay) stop_overlay();
+        if (!hasOpenGL) {
+            set_status(L"Esperando a que " + app.exe + L" inicie OpenGL");
+            return;
+        }
+
+        if (process_has_module(app.pid, L"MangoHud.dll")) {
+            set_status(L"OpenGL conectado · " + displayName);
+            return;
+        }
+
+        if (GetTickCount64() < g_nextRetry) return;
+        g_nextRetry = GetTickCount64() + 2500;
+        if (inject_mangohud_dll(app.pid)) {
+            set_status(L"Conectado a OpenGL · " + displayName);
+        }
+        return;
+    }
+
+    if (g_overlay && WaitForSingleObject(g_overlay, 0) == WAIT_OBJECT_0) {
+        CloseHandle(g_overlay);
+        g_overlay = nullptr;
+        g_overlayPid = 0;
+        g_nextRetry = GetTickCount64() + 2500;
+    }
+    if (!g_overlay && GetTickCount64() >= g_nextRetry) {
+        if (start_overlay())
+            set_status(L"HUD activo · " + displayName);
+    } else if (g_overlay) {
+        set_status(L"HUD activo · " + displayName);
+    }
 }
 
 void add_tray() {
@@ -315,7 +421,7 @@ void add_tray() {
     g_nid.uID = 1;
     g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     g_nid.uCallbackMessage = kTrayMessage;
-    g_nid.hIcon = g_appIcon ? g_appIcon : LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
+    g_nid.hIcon = g_trayIcon ? g_trayIcon : LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
     wcscpy_s(g_nid.szTip, L"MangoHud · seguimiento automático");
     g_tray = Shell_NotifyIconW(NIM_ADD, &g_nid) == TRUE;
 }
@@ -353,20 +459,23 @@ void tray_menu() {
 }
 
 void toggle_enabled() {
-    g_enabled = !g_enabled;
-    if (g_enabled) {
-        if (g_targetPid && !g_targetExe.empty()) start_overlay();
-        else set_status(L"Esperando una aplicación compatible");
-    } else {
-        stop_overlay(false);
+    set_shared_enabled(!g_enabled);
+    if (!g_enabled) {
+        set_shared_target(0);
+        stop_overlay();
         set_status(L"HUD pausado");
+    } else {
+        set_status(L"Buscando aplicación activa…");
+        g_nextRetry = 0;
+        refresh_foreground();
     }
-    if (g_enabledCheck) SendMessageW(g_enabledCheck, BM_SETCHECK, g_enabled ? BST_CHECKED : BST_UNCHECKED, 0);
 }
 
 void exit_application() {
+    set_shared_enabled(false);
+    set_shared_target(0);
+    stop_overlay();
     remove_tray();
-    stop_overlay(false);
     if (g_main) DestroyWindow(g_main);
 }
 
@@ -383,32 +492,17 @@ HWND make_child(const wchar_t* klass, const wchar_t* text, DWORD style,
 LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_COMMAND:
-        if (LOWORD(wParam) == ID_TARGET && HIWORD(wParam) == CBN_SELCHANGE && !g_updatingCombo) {
-            const LRESULT index = SendMessageW(g_targetCombo, CB_GETCURSEL, 0, 0);
-            if (index != CB_ERR) {
-                const DWORD pid = static_cast<DWORD>(SendMessageW(g_targetCombo, CB_GETITEMDATA, index, 0));
-                for (const auto& app : g_apps) if (app.pid == pid) {
-                    g_autoSwitch = false;
-                    if (g_autoCheck) SendMessageW(g_autoCheck, BM_SETCHECK, BST_UNCHECKED, 0);
-                    set_target(app, false);
-                    break;
-                }
-            }
-            return 0;
-        }
-        if (LOWORD(wParam) == ID_AUTO && HIWORD(wParam) == BN_CLICKED) {
-            g_autoSwitch = SendMessageW(g_autoCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
-            if (g_autoSwitch) refresh_apps();
-            return 0;
-        }
         if (LOWORD(wParam) == ID_ENABLED && HIWORD(wParam) == BN_CLICKED) {
-            g_enabled = SendMessageW(g_enabledCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
-            if (g_enabled) {
-                if (g_targetPid) start_overlay();
-                else refresh_apps();
-            } else {
-                stop_overlay(false);
+            const bool enabled = SendMessageW(g_enabledCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            set_shared_enabled(enabled);
+            if (!enabled) {
+                set_shared_target(0);
+                stop_overlay();
                 set_status(L"HUD pausado");
+            } else {
+                g_nextRetry = 0;
+                set_status(L"Buscando aplicación activa…");
+                refresh_foreground();
             }
             return 0;
         }
@@ -420,8 +514,8 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
     case WM_CTLCOLORSTATIC: {
         HDC dc = reinterpret_cast<HDC>(wParam);
         SetBkMode(dc, TRANSPARENT);
-        SetTextColor(dc, GetDlgCtrlID(reinterpret_cast<HWND>(lParam)) == ID_STATUS ?
-            RGB(205, 112, 26) : GetSysColor(COLOR_WINDOWTEXT));
+        SetTextColor(dc, GetDlgCtrlID(reinterpret_cast<HWND>(lParam)) == 0 ?
+            GetSysColor(COLOR_WINDOWTEXT) : RGB(205, 112, 26));
         return reinterpret_cast<LRESULT>(g_bgBrush);
     }
     case WM_ERASEBKGND: {
@@ -433,22 +527,12 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
     case WM_PAINT: {
         PAINTSTRUCT paint{};
         HDC dc = BeginPaint(window, &paint);
-        if (g_appIcon) DrawIconEx(dc, 24, 16, g_appIcon, 42, 42, 0, nullptr, DI_NORMAL);
+        if (g_appIcon) DrawIconEx(dc, 24, 16, g_appIcon, 48, 48, 0, nullptr, DI_NORMAL);
         EndPaint(window, &paint);
         return 0;
     }
     case WM_TIMER:
-        if (wParam == kTimerId) {
-            if (g_overlay && WaitForSingleObject(g_overlay, 0) == WAIT_OBJECT_0) {
-                CloseHandle(g_overlay);
-                g_overlay = nullptr;
-                g_overlayPid = 0;
-                g_enabled = false;
-                if (g_enabledCheck) SendMessageW(g_enabledCheck, BM_SETCHECK, BST_UNCHECKED, 0);
-                set_status(L"El HUD se ha detenido");
-            }
-            refresh_apps();
-        }
+        if (wParam == kTimerId) refresh_foreground();
         return 0;
     case WM_SIZE:
         if (wParam == SIZE_MINIMIZED) hide_to_tray();
@@ -478,6 +562,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         return 0;
     }
 
+    init_shared_state();
     g_bgBrush = CreateSolidBrush(GetSysColor(COLOR_WINDOW));
     g_titleFont = CreateFontW(-27, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
@@ -491,7 +576,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
 
     const std::wstring iconPath = app_dir() + L"\\MangoHud.ico";
     g_appIcon = static_cast<HICON>(LoadImageW(nullptr, iconPath.c_str(), IMAGE_ICON,
-        0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE));
+        48, 48, LR_LOADFROMFILE | LR_DEFAULTCOLOR));
+    g_trayIcon = static_cast<HICON>(LoadImageW(nullptr, iconPath.c_str(), IMAGE_ICON,
+        16, 16, LR_LOADFROMFILE | LR_DEFAULTCOLOR));
 
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
@@ -499,46 +586,38 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     wc.hInstance = instance;
     wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
     wc.hIcon = g_appIcon ? g_appIcon : LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
-    wc.hIconSm = wc.hIcon;
+    wc.hIconSm = g_trayIcon ? g_trayIcon : wc.hIcon;
     wc.hbrBackground = g_bgBrush;
     wc.lpszClassName = kClass;
     if (!RegisterClassExW(&wc)) return 1;
 
     g_main = CreateWindowExW(WS_EX_APPWINDOW, kClass, L"MangoHud",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 440, 280,
+        CW_USEDEFAULT, CW_USEDEFAULT, 430, 230,
         nullptr, nullptr, instance, nullptr);
     if (!g_main) return 2;
 
-    SendMessageW(g_main, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(g_appIcon));
-    SendMessageW(g_main, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(g_appIcon));
+    SendMessageW(g_main, WM_SETICON, ICON_BIG,
+        reinterpret_cast<LPARAM>(g_appIcon ? g_appIcon : wc.hIcon));
+    SendMessageW(g_main, WM_SETICON, ICON_SMALL,
+        reinterpret_cast<LPARAM>(g_trayIcon ? g_trayIcon : wc.hIcon));
 
-    make_child(L"STATIC", L"MangoHud", SS_LEFT, 76, 18, 330, 34, 0);
-    HWND subtitle = make_child(L"STATIC", L"Control automático", SS_LEFT, 78, 52, 330, 22, 0);
+    HWND title = make_child(L"STATIC", L"MangoHud", SS_LEFT, 84, 18, 320, 34, 0);
+    if (title && g_titleFont)
+        SendMessageW(title, WM_SETFONT, reinterpret_cast<WPARAM>(g_titleFont), TRUE);
+    HWND subtitle = make_child(L"STATIC", L"Control automático", SS_LEFT, 86, 52, 320, 22, 0);
     if (subtitle) SendMessageW(subtitle, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
-    g_status = make_child(L"STATIC", L"Buscando aplicaciones…", SS_LEFT, 25, 84, 390, 23, ID_STATUS);
-
-    make_child(L"STATIC", L"Aplicación detectada", SS_LEFT, 25, 117, 390, 20, 0);
-    g_targetCombo = make_child(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
-        25, 140, 390, 220, ID_TARGET);
-    if (g_targetCombo) SendMessageW(g_targetCombo, CB_SETDROPPEDWIDTH, 390, 0);
-
-    g_autoCheck = make_child(L"BUTTON", L"Seguir automáticamente la aplicación que uso",
-        BS_AUTOCHECKBOX | WS_TABSTOP, 25, 181, 390, 26, ID_AUTO);
+    g_status = make_child(L"STATIC", L"Buscando aplicación activa…", SS_LEFT, 25, 98, 380, 26, 1);
+    HWND hint = make_child(L"STATIC", L"Se conecta a la ventana que estás utilizando", SS_LEFT,
+        25, 130, 380, 22, 0);
+    if (hint) SendMessageW(hint, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
     g_enabledCheck = make_child(L"BUTTON", L"HUD activado",
-        BS_AUTOCHECKBOX | WS_TABSTOP, 25, 211, 390, 26, ID_ENABLED);
-
-    
-    if (g_titleFont) {
-        HWND title = FindWindowExW(g_main, nullptr, L"STATIC", L"MangoHud");
-        if (title) SendMessageW(title, WM_SETFONT, reinterpret_cast<WPARAM>(g_titleFont), TRUE);
-    }
-    SendMessageW(g_autoCheck, BM_SETCHECK, BST_CHECKED, 0);
+        BS_AUTOCHECKBOX | WS_TABSTOP, 25, 165, 380, 26, ID_ENABLED);
     SendMessageW(g_enabledCheck, BM_SETCHECK, BST_CHECKED, 0);
 
-    SetTimer(g_main, kTimerId, 1200, nullptr);
+    SetTimer(g_main, kTimerId, 500, nullptr);
     add_tray();
-    refresh_apps();
+    refresh_foreground();
     hide_to_tray();
 
     MSG msg{};
@@ -547,12 +626,18 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         DispatchMessageW(&msg);
     }
 
-    if (g_overlay) stop_overlay(false);
+    stop_overlay();
+    if (g_sharedState) {
+        UnmapViewOfFile(g_sharedState);
+        g_sharedState = nullptr;
+    }
+    if (g_stateMapping) CloseHandle(g_stateMapping);
     if (g_titleFont) DeleteObject(g_titleFont);
     if (g_font) DeleteObject(g_font);
     if (g_smallFont) DeleteObject(g_smallFont);
     if (g_bgBrush) DeleteObject(g_bgBrush);
     if (g_appIcon) DestroyIcon(g_appIcon);
+    if (g_trayIcon) DestroyIcon(g_trayIcon);
     if (mutex) CloseHandle(mutex);
     return static_cast<int>(msg.wParam);
 }

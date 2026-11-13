@@ -28,6 +28,10 @@ function Expand-GzipBase64Asset([string]$InputPath, [string]$OutputPath) {
     }
 }
 Expand-GzipBase64Asset (Join-Path $brandingAssets 'MangoHud.ico.gz.b64') (Join-Path $brandingAssets 'MangoHud.ico')
+$iconPath = Join-Path $brandingAssets 'MangoHud.ico'
+$env:MANGOHUD_ICON_PATH = $iconPath
+python -c "import os; from PIL import Image; p=os.environ['MANGOHUD_ICON_PATH']; Image.open(p).convert('RGBA').save(p, format='ICO', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64)])"
+if ($LASTEXITCODE -ne 0) { throw 'No se pudo generar el icono multirresolución con transparencia.' }
 Expand-GzipBase64Asset (Join-Path $brandingAssets 'WizardImage.bmp.gz.b64') (Join-Path $brandingAssets 'WizardImage.bmp')
 Expand-GzipBase64Asset (Join-Path $brandingAssets 'WizardSmallImage.bmp.gz.b64') (Join-Path $brandingAssets 'WizardSmallImage.bmp')
 Write-Host 'MangoHud installer artwork decoded.'
@@ -144,6 +148,7 @@ $hook = @'
 #include "../overlay.h"
 #include "../hud_elements.h"
 #include "d3d_shared.h"
+#include "opengl_hook.h"
 
 namespace {
 using SwapBuffersFn = BOOL (WINAPI *)(HDC);
@@ -156,6 +161,8 @@ HWND overlayWindow = nullptr;
 
 BOOL WINAPI hookedSwapBuffers(HDC dc)
 {
+    if (!mangohud_control_should_render())
+        return realSwapBuffers ? realSwapBuffers(dc) : FALSE;
     std::lock_guard<std::mutex> renderLock(renderMutex);
     if (wglGetCurrentContext()) {
         dx_version = kiero::RenderType::OpenGL;
@@ -205,6 +212,14 @@ BOOL WINAPI hookedSwapBuffers(HDC dc)
             if (HUDElements.colors.update) HUDElements.convert_colors(params);
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplWin32_NewFrame();
+            // Match ImGui's framebuffer coordinates to the window's actual DPI.
+            using GetDpiForWindowFn = UINT (WINAPI *)(HWND);
+            HMODULE user32 = GetModuleHandleW(L"user32.dll");
+            auto getDpiForWindow = reinterpret_cast<GetDpiForWindowFn>(
+                user32 ? GetProcAddress(user32, "GetDpiForWindow") : nullptr);
+            const UINT dpi = getDpiForWindow ? getDpiForWindow(overlayWindow) : 96;
+            const float dpiScale = dpi ? static_cast<float>(dpi) / 96.0f : 1.0f;
+            ImGui::GetIO().DisplayFramebufferScale = ImVec2(dpiScale, dpiScale);
             ImGui::NewFrame();
             overlay_new_frame(params);
             position_layer(sw_stats, params, window_size);
@@ -248,11 +263,57 @@ bool init_opengl_hook()
 
 $bootstrap = @'
 #include <windows.h>
+#include <string>
+#include <vector>
 #include "opengl_hook.h"
+
+struct MangoHudControlState {
+    volatile LONG enabled;
+    volatile LONG activePid;
+};
+
+static MangoHudControlState* controlState = nullptr;
+static HANDLE controlStateMapping = nullptr;
+
+static void attachControlState()
+{
+    controlStateMapping = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, L"Local\\MangoHudControlState");
+    if (!controlStateMapping) return;
+    controlState = static_cast<MangoHudControlState*>(
+        MapViewOfFile(controlStateMapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(MangoHudControlState)));
+}
+
+bool mangohud_control_should_render()
+{
+    if (!controlState) return true; // Standalone launcher: no control panel is attached.
+    const LONG enabled = InterlockedCompareExchange(&controlState->enabled, 0, 0);
+    const LONG activePid = InterlockedCompareExchange(&controlState->activePid, 0, 0);
+    return enabled != 0 && activePid == static_cast<LONG>(GetCurrentProcessId());
+}
+
+static void configureInstalledConfig(HMODULE module)
+{
+    std::vector<wchar_t> buffer(32768);
+    const DWORD length = GetModuleFileNameW(module, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (!length || length >= buffer.size()) return;
+
+    const std::wstring dllPath(buffer.data(), length);
+    const size_t fileSlash = dllPath.find_last_of(L"\\/");
+    if (fileSlash == std::wstring::npos) return;
+    const std::wstring binDirectory = dllPath.substr(0, fileSlash);
+    const size_t rootSlash = binDirectory.find_last_of(L"\\/");
+    if (rootSlash == std::wstring::npos) return;
+
+    const std::wstring configPath =
+        binDirectory.substr(0, rootSlash) + L"\\config\\MangoHud.conf";
+    wchar_t existingConfig[2] = {};
+    const DWORD existingLength = GetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", existingConfig, 2);
+    if (existingLength == 0 && GetFileAttributesW(configPath.c_str()) != INVALID_FILE_ATTRIBUTES)
+        SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", configPath.c_str());
+}
 
 static void signalLauncherReady()
 {
-    // Named event: MangoHudOpenGLReady_<launcher-pid>_<tick-count>.
     wchar_t eventName[512] = {};
     const DWORD capacity = static_cast<DWORD>(sizeof(eventName) / sizeof(eventName[0]));
     const DWORD length = GetEnvironmentVariableW(L"MANGOHUD_OPENGL_READY_EVENT", eventName, capacity);
@@ -264,8 +325,10 @@ static void signalLauncherReady()
     }
 }
 
-static DWORD WINAPI install_opengl_hook_thread(void*)
+static DWORD WINAPI install_opengl_hook_thread(void* parameter)
 {
+    attachControlState();
+    configureInstalledConfig(static_cast<HMODULE>(parameter));
     if (init_opengl_hook()) signalLauncherReady();
     return 0;
 }
@@ -274,7 +337,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
 {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(instance);
-        HANDLE thread = CreateThread(nullptr, 0, install_opengl_hook_thread, nullptr, 0, nullptr);
+        HANDLE thread = CreateThread(nullptr, 0, install_opengl_hook_thread, instance, 0, nullptr);
         if (thread) CloseHandle(thread);
     }
     return TRUE;
@@ -284,6 +347,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
 $header = @'
 #pragma once
 bool init_opengl_hook();
+bool mangohud_control_should_render();
 '@
 
 $launcher = @'
@@ -491,9 +555,9 @@ if (-not $packageScript.Contains($copyLauncher) -or -not $packageScript.Contains
 $readmeControl = @'
 CONTROL PANEL (normal use)
 1. Start MangoHudControl.exe from the Start menu or installation folder.
-2. The default process is Firestorm-Releasex64.exe. Change it to another .exe name when needed.
-3. Minimize to the notification area to keep the overlay active without leaving the panel on screen.
-4. Double-click the tray icon to reopen the panel. Right-click it and choose Close MangoHud to stop the overlay and exit.
+2. Control automatically follows the application in the foreground. No manual process selection is required.
+3. OpenGL applications such as Firestorm are attached directly; other supported APIs use the companion overlay.
+4. The tray menu can pause/resume the HUD or exit MangoHud completely.
 
 '@
 if (-not $packageScript.Contains('CONTROL PANEL (normal use)')) {
@@ -523,9 +587,9 @@ if (-not $packageScript.Contains($inventoryControl)) {
 $controlDocs = @'
 CONTROL PANEL (normal use)
 1. Start MangoHudControl.exe from the Start menu or installation folder.
-2. The default process is Firestorm-Releasex64.exe. Change it to another .exe name when needed.
-3. Minimize to the notification area to keep the overlay active without leaving the panel on screen.
-4. Double-click the tray icon to reopen the panel. Right-click it and choose Close MangoHud to stop the overlay and exit.
+2. Control automatically follows the application in the foreground. No manual process selection is required.
+3. OpenGL applications such as Firestorm are attached directly; other supported APIs use the companion overlay.
+4. The tray menu can pause/resume the HUD or exit MangoHud completely.
 
 '@
 $vulkanMarker = 'VULKAN TEST (does not write to the Windows Registry)'
