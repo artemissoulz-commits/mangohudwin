@@ -279,6 +279,9 @@ jobs:
         shell: pwsh
         working-directory: source
         run: |
+          Write-Host '--- Windows static check definitions ---'
+          Get-Content -LiteralPath 'dev/check_windows_port.py'
+          Write-Host '--- Running static checks ---'
           python dev/check_windows_port.py
 
           $workflowPath = Join-Path $env:GITHUB_WORKSPACE '.github\workflows\build-windows.yml'
