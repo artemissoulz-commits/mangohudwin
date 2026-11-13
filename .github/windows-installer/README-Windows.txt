@@ -15,20 +15,28 @@ instaladas.
 
 PANEL DE CONTROL
 ----------------
-Abre MangoHud Control desde el menu Inicio. El panel se inicia con
-Firestorm-Releasex64.exe como proceso objetivo para que no siga Firefox ni
-otra ventana que pongas en primer plano. Puedes escribir otro nombre .exe,
-usar Iniciar / reiniciar o Detener, y minimizar el panel a la bandeja del
-sistema. Haz doble clic en el icono de MangoHud para volver a abrir el panel;
-con clic derecho puedes cerrar MangoHud por completo.
+Abre MangoHud Control desde el menu Inicio. El panel detecta aplicaciones
+abiertas y, con el seguimiento automatico activado, conecta el hook OpenGL al
+proceso x64 que esta en primer plano (por ejemplo Firestorm-Releasex64.exe).
+No inicia una segunda instancia de Firestorm ni usa MangoHud.exe como proceso
+auxiliar: carga bin\MangoHud.dll dentro del proceso seleccionado y controla
+el HUD con un evento por PID.
 
-El panel lanza el overlay oculto, por lo que no aparece una ventana de consola
-adicional. No necesitas ejecutar el panel como administrador.
+Puedes desactivar el seguimiento automatico para elegir una aplicacion concreta.
+Pausar o salir de Control oculta el HUD; no cierra ni termina Firestorm. Haz
+doble clic en el icono de MangoHud para volver a abrir el panel; con clic
+derecho puedes cerrar MangoHud por completo.
+
+Control y la aplicacion objetivo deben ejecutarse con el mismo nivel de
+permisos. Si Firestorm se ejecuta como administrador, abre MangoHud Control
+tambien como administrador. Si el proceso ya tiene una MangoHud.dll antigua
+cargada, cierra Firestorm por completo y vuelve a abrirlo tras actualizar.
 
 OPENGL (LANZADOR EXPERIMENTAL)
 ------------------------------
-El lanzador inyecta MangoHud.dll en un proceso x64 antes de que la aplicacion
-empiece a ejecutarse. Abre PowerShell y ejecuta:
+El lanzador opcional inicia un proceso x64 nuevo e inyecta MangoHud.dll antes
+de que la aplicacion empiece a ejecutarse. Para conectar el HUD a una aplicacion
+que ya esta abierta, usa MangoHud Control en lugar de este lanzador. Abre PowerShell y ejecuta:
 
 & "$env:LOCALAPPDATA\Programs\MangoHud\bin\MangoHudLauncher.exe" "C:\Ruta\A\TuAplicacionOpenGL.exe"
 
