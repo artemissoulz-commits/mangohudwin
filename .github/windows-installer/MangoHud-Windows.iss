@@ -36,7 +36,7 @@ Uninstallable=yes
 AllowNoIcons=yes
 
 [Languages]
-Name: "spanish"; MessagesFile: "compiler:Languages\\Spanish.isl"
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Files]
 Source: "{#RepoRoot}\source\LICENSE"; DestDir: "{app}"; DestName: "LICENSE"; Flags: ignoreversion
