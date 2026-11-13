@@ -66,11 +66,23 @@ juegos protegidos o con anti-cheat.
 
 SKINS DEL HUD
 --------------
-En MangoHud Control puedes elegir entre cuatro apariencias del HUD:
-Dark (oscura), Mango (naranja y verde), Minimal (compacta) y Glass
-(translucida). El tema elegido se guarda y se aplica al HUD conectado al
-recibir el siguiente frame; tambien queda seleccionado para los siguientes
-juegos. Los archivos de cada skin estan en la carpeta skins.
+MangoHud Control incluye ocho temas seleccionables:
+
+- Dark: tema oscuro original del port.
+- Mango: colores naranja y verde de la identidad MangoHud.
+- Minimal: diseño compacto original del port.
+- Glass: panel translucido original del port.
+- Catppuccin Latte, Frappe, Macchiato y Mocha: paletas comunitarias adaptadas
+  desde Catppuccin para MangoHud.
+
+Dark sigue siendo la apariencia predeterminada. Dark y Minimal se mantienen
+sin cambios. Los temas Catppuccin conservan su atribucion y licencia MIT en
+skins\Catppuccin-LICENSE.txt; el proyecto original esta en:
+https://github.com/catppuccin/mangohud
+
+El tema elegido se guarda y se aplica al HUD conectado al recibir el siguiente
+frame; tambien queda seleccionado para los siguientes juegos. Los archivos
+de cada skin estan en la carpeta skins.
 
 CONFIGURACION
 -------------
