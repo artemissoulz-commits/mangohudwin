@@ -373,6 +373,15 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'MangoHudControl.exe'))) {
             throw 'El paquete no contiene MangoHudControl.exe'
           }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'MangoHud.ico'))) {
+            throw 'El paquete no contiene MangoHud.ico'
+          }
+          $assetDir = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\assets'
+          foreach ($asset in @('MangoHud.ico', 'WizardImage.bmp', 'WizardSmallImage.bmp')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $assetDir $asset))) {
+              throw "Falta el recurso visual del instalador: $asset"
+            }
+          }
           if (-not (Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'source\LICENSE'))) {
             throw 'No se encuentra la licencia de MangoHud en el paquete de fuentes'
           }
