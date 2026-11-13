@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - windows-opengl-wgl
+      - windows-opengl-wgl-package-fix
   pull_request:
     branches:
       - main
@@ -25,6 +26,10 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.12'
+
+      - name: Install Pillow for multi-resolution Windows icons
+        shell: pwsh
+        run: python -m pip install --upgrade pillow
 
 
       - name: Install glslang for shader compilation
@@ -80,6 +85,12 @@ jobs:
           git -C source add --all
           git -C source -c user.name='GitHub Actions' -c user.email='actions@github.local' commit -m 'Source archive snapshot'
           git -C source tag v0.8.3
+
+      - name: Apply OpenGL WGL hook and launcher
+        shell: pwsh
+        working-directory: source
+        run: |
+          & "${env:GITHUB_WORKSPACE}/.github/windows-opengl/apply-opengl-patch.ps1"
 
 
       - name: Fix Winsock2 include order
@@ -325,6 +336,8 @@ jobs:
         run: |
           $expected = @(
             'build-msvc/src/MangoHud.dll',
+            'build-msvc/src/MangoHudLauncher.exe',
+            'build-msvc/src/MangoHudControl.exe',
             'build-msvc/src/dxgi.dll',
             'build-msvc/src/MangoHud.exe',
             'build-msvc/src/MangoHud.x86_64.json'
@@ -346,6 +359,94 @@ jobs:
           Compress-Archive -Path 'package/*' -DestinationPath $zip -CompressionLevel Optimal
           if (-not (Test-Path -LiteralPath $zip)) { throw 'No se generó el ZIP de prueba' }
           Get-Item -LiteralPath $zip | Select-Object FullName, Length
+
+      - name: Prepare branded installer assets
+        shell: pwsh
+        run: |
+          $assetDir = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\assets'
+          function Expand-GzipBase64Asset([string]$sourceName, [string]$destinationName, [byte[]]$signature) {
+            $sourcePath = Join-Path $assetDir $sourceName
+            $destinationPath = Join-Path $assetDir $destinationName
+            $encoded = (Get-Content -LiteralPath $sourcePath -Raw).Trim()
+            $compressed = [Convert]::FromBase64String($encoded)
+            $inputStream = [System.IO.MemoryStream]::new($compressed)
+            $gzip = [System.IO.Compression.GZipStream]::new($inputStream, [System.IO.Compression.CompressionMode]::Decompress)
+            $outputStream = [System.IO.MemoryStream]::new()
+            try {
+              $gzip.CopyTo($outputStream)
+              $bytes = $outputStream.ToArray()
+            } finally {
+              $gzip.Dispose()
+              $inputStream.Dispose()
+              $outputStream.Dispose()
+            }
+            if ($bytes.Length -lt $signature.Length) { throw "Asset is empty: $sourceName" }
+            for ($i = 0; $i -lt $signature.Length; $i++) {
+              if ($bytes[$i] -ne $signature[$i]) { throw "Invalid file signature for $destinationName" }
+            }
+            [System.IO.File]::WriteAllBytes($destinationPath, $bytes)
+            Get-Item -LiteralPath $destinationPath | Select-Object Name, Length
+          }
+          Expand-GzipBase64Asset 'MangoHud.ico.gz.b64' 'MangoHud.ico' ([byte[]](0,0,1,0))
+          $iconPath = Join-Path $assetDir 'MangoHud.ico'
+          $env:MANGOHUD_ICON_PATH = $iconPath
+          python -c "import os; from PIL import Image; p=os.environ['MANGOHUD_ICON_PATH']; Image.open(p).convert('RGBA').save(p, format='ICO', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64)])"
+          if ($LASTEXITCODE -ne 0) { throw 'No se pudo generar el icono multirresolución del instalador.' }
+          Expand-GzipBase64Asset 'WizardImage.bmp.gz.b64' 'WizardImage.bmp' ([byte[]](66,77))
+          Expand-GzipBase64Asset 'WizardSmallImage.bmp.gz.b64' 'WizardSmallImage.bmp' ([byte[]](66,77))
+
+      - name: Build Windows installer with Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\MangoHud-Windows.iss'
+          $outDir = Join-Path $env:GITHUB_WORKSPACE 'installer-output'
+          $packageDir = Join-Path $env:GITHUB_WORKSPACE 'source\package'
+          if (-not (Test-Path -LiteralPath $source)) { throw "No se encuentra el script Inno Setup: $source" }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'bin\MangoHud.dll'))) {
+            throw 'El paquete no contiene bin\MangoHud.dll'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'bin\MangoHudLauncher.exe'))) {
+            throw 'El paquete no contiene MangoHudLauncher.exe'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'MangoHudControl.exe'))) {
+            throw 'El paquete no contiene MangoHudControl.exe'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'MangoHud.ico'))) {
+            throw 'El paquete no contiene MangoHud.ico'
+          }
+          $assetDir = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\assets'
+          foreach ($asset in @('MangoHud.ico', 'WizardImage.bmp', 'WizardSmallImage.bmp')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $assetDir $asset))) {
+              throw "Falta el recurso visual del instalador: $asset"
+            }
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'source\LICENSE'))) {
+            throw 'No se encuentra la licencia de MangoHud en el paquete de fuentes'
+          }
+          choco install innosetup --no-progress --yes
+          $isccCandidates = @(
+            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe')
+          )
+          $iscc = $isccCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $iscc) { throw 'No se encontró ISCC.exe después de instalar Inno Setup.' }
+          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+          & $iscc /Qp $source
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup falló con código $LASTEXITCODE" }
+          $setupExe = Join-Path $outDir 'MangoHud-Windows-Setup-x64.exe'
+          if (-not (Test-Path -LiteralPath $setupExe)) { throw "No se generó el instalador esperado: $setupExe" }
+          Get-Item -LiteralPath $setupExe | Select-Object FullName, Length
+
+      - name: Upload Windows installer
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: MangoHud-Windows-Setup-x64
+          path: installer-output/MangoHud-Windows-Setup-x64.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
 
       - name: Upload experimental preview package
         if: success()
