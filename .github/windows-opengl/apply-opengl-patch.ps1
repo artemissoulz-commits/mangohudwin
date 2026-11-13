@@ -394,3 +394,41 @@ if (-not $packageScript.Contains($inventoryLauncher)) {
 
 [System.IO.File]::WriteAllText($packageScriptPath, $packageScript, [System.Text.UTF8Encoding]::new($false))
 Write-Host 'OpenGL launcher added to required package files, readme, and binary inventory.'
+
+
+# Keep the experimental package documentation aligned with the included WGL hook.
+$openGlTestMarker = 'VULKAN TEST (does not write to the Windows Registry)'
+$openGlTestSection = @'
+OPENGL TEST (x64 test applications only; use a disposable application)
+1. Open PowerShell in the package folder.
+2. Run: .\bin\MangoHudLauncher.exe "C:\Games\OpenGLTest\OpenGLTest.exe"
+3. The launcher starts the game suspended, injects bin\MangoHud.dll, waits for the WGL hook, then starts the game.
+Do not use this experimental injector with protected multiplayer or anti-cheat games.
+
+'@
+if (-not $packageScript.Contains('OPENGL TEST (x64 test applications only')) {
+    if (-not $packageScript.Contains($openGlTestMarker)) {
+        throw 'Could not find the README Vulkan test section'
+    }
+    $packageScript = $packageScript.Replace($openGlTestMarker, $openGlTestSection + $openGlTestMarker)
+}
+
+$oldSupport = 'OpenGL: not ported in this snapshot.'
+$newSupport = 'OpenGL: WGL SwapBuffers hook and launcher built; runtime validation pending.'
+if ($packageScript.Contains($oldSupport)) {
+    $packageScript = $packageScript.Replace($oldSupport, $newSupport)
+}
+
+$oldApiList = "    GraphicsAPIs = @('Vulkan build target', 'Direct3D 11 build target', 'Direct3D 12 MSVC build target')"
+$newApiList = "    GraphicsAPIs = @('Vulkan build target', 'Direct3D 11 build target', 'Direct3D 12 MSVC build target', 'OpenGL WGL hook build target')"
+if ($packageScript.Contains($oldApiList)) {
+    $packageScript = $packageScript.Replace($oldApiList, $newApiList)
+}
+$oldOpenGlMeta = "    OpenGL = 'Not ported'"
+$newOpenGlMeta = "    OpenGL = 'WGL SwapBuffers hook and launcher built; runtime validation pending'"
+if ($packageScript.Contains($oldOpenGlMeta)) {
+    $packageScript = $packageScript.Replace($oldOpenGlMeta, $newOpenGlMeta)
+}
+
+[System.IO.File]::WriteAllText($packageScriptPath, $packageScript, [System.Text.UTF8Encoding]::new($false))
+Write-Host 'OpenGL test instructions and build metadata updated.'
