@@ -763,7 +763,101 @@ static void initOverlayHooks()
     if ($updatedProxy -eq $proxySource) { throw 'Could not replace DXGI proxy initialization thread.' }
     $proxySource = $updatedProxy
 
-    $threadCreateOld = '    CreateThread(NULL, 0, initOverlayThread, NULL, 0, NULL);'
+    $threadCreatePattern = '(?m)^\s*CreateThread\(\s*NULL,\s*0,\s*initOverlayThread,\s*NULL,\s*0,\s*NULL\s*\);\s*
+
+    $exportAnchor = 'template<typename T>'
+    $exportCode = @'
+extern "C" __declspec(dllexport) BOOL WINAPI MangoHudInitializeDXGIHooks() {
+    if (s_disableHooksForHost || s_initFailed)
+        return FALSE;
+
+    if (s_hooksReady.load()) {
+        signalDXGIReadyEvent();
+        return TRUE;
+    }
+
+    initOverlayHooks();
+    return s_hooksInited && !s_initFailed;
+}
+
+'@
+    if (-not $proxySource.Contains($exportAnchor)) { throw 'DXGI export insertion anchor missing.' }
+    $proxySource = $proxySource.Replace($exportAnchor, $exportCode + $exportAnchor)
+    [System.IO.File]::WriteAllText($proxyPath, $proxySource, [System.Text.UTF8Encoding]::new($false))
+}
+
+$sharedHeaderPath = Join-Path $root 'src/win/d3d_shared.h'
+$sharedHeader = [System.IO.File]::ReadAllText($sharedHeaderPath)
+if (-not $sharedHeader.Contains('d3d_overlay_enabled')) {
+    $sharedHeader = $sharedHeader.TrimEnd() + $nl + $nl + 'bool d3d_overlay_enabled();' + $nl
+    [System.IO.File]::WriteAllText($sharedHeaderPath, $sharedHeader, [System.Text.UTF8Encoding]::new($false))
+}
+
+$sharedSourcePath = Join-Path $root 'src/win/d3d_shared.cpp'
+$sharedSource = [System.IO.File]::ReadAllText($sharedSourcePath)
+if (-not $sharedSource.Contains('bool d3d_overlay_enabled()')) {
+    $sharedSource = $sharedSource.Replace(
+        '#include "d3d_shared.h"',
+        '#include <windows.h>' + $nl + '#include <cwchar>' + $nl + '#include "d3d_shared.h"'
+    )
+    $sharedSource += @'
+
+bool d3d_overlay_enabled() {
+    // A missing event means the classic drop-in DXGI proxy path is in use.
+    static HANDLE enabledEvent = []() -> HANDLE {
+        wchar_t eventName[96] = {};
+        swprintf_s(eventName, L"Local\\MangoHudDXGIEnabled_%lu", GetCurrentProcessId());
+        return OpenEventW(SYNCHRONIZE, FALSE, eventName);
+    }();
+    return !enabledEvent || WaitForSingleObject(enabledEvent, 0) == WAIT_OBJECT_0;
+}
+'@
+    [System.IO.File]::WriteAllText($sharedSourcePath, $sharedSource, [System.Text.UTF8Encoding]::new($false))
+}
+
+$d3d11Path = Join-Path $root 'src/win/d3d11_hook.cpp'
+$d3d11Source = [System.IO.File]::ReadAllText($d3d11Path)
+$d3d11Anchor = @'
+    dx_version = kiero::RenderType::D3D11;
+
+    if (!imgui_inited)
+'@
+$d3d11Replacement = @'
+    dx_version = kiero::RenderType::D3D11;
+
+    if (!d3d_overlay_enabled())
+        return oPresent(pSwapChain, SyncInterval, Flags);
+
+    if (!imgui_inited)
+'@
+if (-not $d3d11Source.Contains('if (!d3d_overlay_enabled())')) {
+    if (-not $d3d11Source.Contains($d3d11Anchor)) { throw 'D3D11 Present gate insertion point missing.' }
+    $d3d11Source = $d3d11Source.Replace($d3d11Anchor, $d3d11Replacement)
+    [System.IO.File]::WriteAllText($d3d11Path, $d3d11Source, [System.Text.UTF8Encoding]::new($false))
+}
+
+$d3d12Path = Join-Path $root 'src/win/d3d12_hook.cpp'
+$d3d12Source = [System.IO.File]::ReadAllText($d3d12Path)
+$d3d12Anchor = @'
+    dx_version = kiero::RenderType::D3D12;
+
+#if HAS_IMGUI_DX12
+'@
+$d3d12Replacement = @'
+    dx_version = kiero::RenderType::D3D12;
+
+    if (!d3d_overlay_enabled())
+        return oPresentD3D12(pSwapChain, SyncInterval, Flags);
+
+#if HAS_IMGUI_DX12
+'@
+if (-not $d3d12Source.Contains('if (!d3d_overlay_enabled())')) {
+    if (-not $d3d12Source.Contains($d3d12Anchor)) { throw 'D3D12 Present gate insertion point missing.' }
+    $d3d12Source = $d3d12Source.Replace($d3d12Anchor, $d3d12Replacement)
+    [System.IO.File]::WriteAllText($d3d12Path, $d3d12Source, [System.Text.UTF8Encoding]::new($false))
+}
+Write-Host 'DXGI proxy now supports in-process initialization and per-PID Control activation.'
+
     $threadCreateNew = @'
     HANDLE thread = CreateThread(NULL, 0, initOverlayThread, NULL, 0, NULL);
     if (thread) {
@@ -773,8 +867,9 @@ static void initOverlayHooks()
         s_hooksInited = false;
     }
 '@
-    if (-not $proxySource.Contains($threadCreateOld)) { throw 'DXGI init thread creation anchor missing.' }
-    $proxySource = $proxySource.Replace($threadCreateOld, $threadCreateNew.TrimEnd())
+    $threadCreateUpdated = [regex]::Replace($proxySource, $threadCreatePattern, $threadCreateNew.TrimEnd(), 1)
+    if ($threadCreateUpdated -eq $proxySource) { throw 'DXGI init thread creation anchor missing.' }
+    $proxySource = $threadCreateUpdated
 
     $exportAnchor = 'template<typename T>'
     $exportCode = @'
