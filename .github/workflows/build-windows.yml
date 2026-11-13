@@ -355,6 +355,47 @@ jobs:
           if (-not (Test-Path -LiteralPath $zip)) { throw 'No se generó el ZIP de prueba' }
           Get-Item -LiteralPath $zip | Select-Object FullName, Length
 
+      - name: Build Windows installer with Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\MangoHud-Windows.iss'
+          $outDir = Join-Path $env:GITHUB_WORKSPACE 'installer-output'
+          $packageDir = Join-Path $env:GITHUB_WORKSPACE 'source\package'
+          if (-not (Test-Path -LiteralPath $source)) { throw "No se encuentra el script Inno Setup: $source" }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'bin\MangoHud.dll'))) {
+            throw 'El paquete no contiene bin\MangoHud.dll'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'bin\MangoHudLauncher.exe'))) {
+            throw 'El paquete no contiene MangoHudLauncher.exe'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'source\LICENSE'))) {
+            throw 'No se encuentra la licencia de MangoHud en el paquete de fuentes'
+          }
+          choco install innosetup --no-progress --yes
+          $isccCandidates = @(
+            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe')
+          )
+          $iscc = $isccCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $iscc) { throw 'No se encontró ISCC.exe después de instalar Inno Setup.' }
+          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+          & $iscc /Qp $source
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup falló con código $LASTEXITCODE" }
+          $setupExe = Join-Path $outDir 'MangoHud-Windows-Setup-x64.exe'
+          if (-not (Test-Path -LiteralPath $setupExe)) { throw "No se generó el instalador esperado: $setupExe" }
+          Get-Item -LiteralPath $setupExe | Select-Object FullName, Length
+
+      - name: Upload Windows installer
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: MangoHud-Windows-Setup-x64
+          path: installer-output/MangoHud-Windows-Setup-x64.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
       - name: Upload experimental preview package
         if: success()
         uses: actions/upload-artifact@v7
