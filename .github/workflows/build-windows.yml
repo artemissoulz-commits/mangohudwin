@@ -333,6 +333,7 @@ jobs:
           $expected = @(
             'build-msvc/src/MangoHud.dll',
             'build-msvc/src/MangoHudLauncher.exe',
+            'build-msvc/src/MangoHudControl.exe',
             'build-msvc/src/dxgi.dll',
             'build-msvc/src/MangoHud.exe',
             'build-msvc/src/MangoHud.x86_64.json'
@@ -368,6 +369,9 @@ jobs:
           }
           if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'bin\MangoHudLauncher.exe'))) {
             throw 'El paquete no contiene MangoHudLauncher.exe'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'MangoHudControl.exe'))) {
+            throw 'El paquete no contiene MangoHudControl.exe'
           }
           if (-not (Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'source\LICENSE'))) {
             throw 'No se encuentra la licencia de MangoHud en el paquete de fuentes'
