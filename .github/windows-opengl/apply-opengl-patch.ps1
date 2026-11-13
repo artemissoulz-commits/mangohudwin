@@ -853,6 +853,72 @@ bool d3d_overlay_enabled() {
     [System.IO.File]::WriteAllText($sharedSourcePath, $sharedSource, [System.Text.UTF8Encoding]::new($false))
 }
 
+
+# Resolve the installed config relative to the DLL itself. This covers both
+# MangoHud.dll (OpenGL) and MangoHudDXGI.dll (D3D11/12) in the target process.
+$sharedSource = [System.IO.File]::ReadAllText($sharedSourcePath)
+if (-not $sharedSource.Contains('set_installed_config_path')) {
+    $configLoader = @'
+static void set_installed_config_path() {
+    if (std::getenv("MANGOHUD_CONFIGFILE")) return;
+
+    HMODULE selfModule = nullptr;
+    if (!GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(reinterpret_cast<const void*>(&init_d3d_shared)),
+            &selfModule))
+        return;
+
+    wchar_t modulePath[32768]{};
+    const DWORD length = GetModuleFileNameW(selfModule, modulePath, 32768);
+    if (!length || length >= 32768) return;
+
+    std::wstring installRoot(modulePath, length);
+    size_t slash = installRoot.find_last_of(L"\\/");
+    if (slash == std::wstring::npos) return;
+    installRoot.resize(slash); // ...\\bin
+    slash = installRoot.find_last_of(L"\\/");
+    if (slash == std::wstring::npos) return;
+    installRoot.resize(slash); // installation root
+
+    const std::wstring configPath = installRoot + L"\\config\\MangoHud.conf";
+    if (GetFileAttributesW(configPath.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+    _wputenv_s(L"MANGOHUD_CONFIGFILE", configPath.c_str());
+    SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", configPath.c_str());
+}
+'@
+    if (-not $sharedSource.Contains('void init_d3d_shared(){')) {
+        throw 'Could not find init_d3d_shared() for installed config loader.'
+    }
+    $sharedSource = $sharedSource.Replace(
+        'void init_d3d_shared(){',
+        $configLoader + $nl + 'void init_d3d_shared(){' + $nl + '    set_installed_config_path();'
+    )
+}
+
+# Control writes a per-install skin and signals this PID-scoped auto-reset
+# event. The next Present safely reloads MangoHud's normal config parser.
+if (-not $sharedSource.Contains('MangoHudReloadConfig_')) {
+    $d3dRunPattern = '(?s)void d3d_run\(\)\s*\{'
+    $d3dRunReplacement = @'
+void d3d_run(){
+    static HANDLE reloadEvent = nullptr;
+    if (!reloadEvent) {
+        wchar_t eventName[96]{};
+        swprintf_s(eventName, L"Local\\MangoHudReloadConfig_%lu", GetCurrentProcessId());
+        reloadEvent = OpenEventW(SYNCHRONIZE, FALSE, eventName);
+    }
+    if (reloadEvent && WaitForSingleObject(reloadEvent, 0) == WAIT_OBJECT_0)
+        parse_overlay_config(&params, std::getenv("MANGOHUD_CONFIG"), false);
+
+'@
+    $updatedShared = [regex]::Replace($sharedSource, $d3dRunPattern, $d3dRunReplacement, 1)
+    if ($updatedShared -eq $sharedSource) { throw 'Could not add live skin reload to d3d_run().' }
+    $sharedSource = $updatedShared
+}
+[System.IO.File]::WriteAllText($sharedSourcePath, $sharedSource, [System.Text.UTF8Encoding]::new($false))
+
 # Respect the event on each Present without stopping the game's own rendering.
 $d3d11Path = Join-Path $root 'src/win/d3d11_hook.cpp'
 $d3d11Source = [System.IO.File]::ReadAllText($d3d11Path)
