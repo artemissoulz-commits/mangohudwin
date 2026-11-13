@@ -1,0 +1,1 @@
+MSVC build output is now captured as build-msvc-compile.log in the diagnostics artifact.

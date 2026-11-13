@@ -1,0 +1,1 @@
+Re-run MSVC compilation with build-msvc-compile.log diagnostics enabled.
