@@ -809,9 +809,15 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
     case WM_CTLCOLORSTATIC: {
         HDC dc = reinterpret_cast<HDC>(wParam);
         SetBkMode(dc, TRANSPARENT);
-        const int controlId = GetDlgCtrlID(reinterpret_cast<HWND>(lParam));
+        HWND child = reinterpret_cast<HWND>(lParam);
+        const int controlId = GetDlgCtrlID(child);
         SetTextColor(dc, controlId == ID_STATUS ? g_statusColor : RGB(40, 49, 61));
-        return reinterpret_cast<LRESULT>(g_bgBrush);
+
+        RECT childRect{};
+        GetWindowRect(child, &childRect);
+        MapWindowPoints(nullptr, window, reinterpret_cast<POINT*>(&childRect), 2);
+        const bool insideStatusCard = childRect.top >= 116 && childRect.top < 226;
+        return reinterpret_cast<LRESULT>(insideStatusCard ? g_cardBrush : g_bgBrush);
     }
     case WM_ERASEBKGND: {
         RECT rect{};
