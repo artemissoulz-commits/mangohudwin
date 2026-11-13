@@ -430,6 +430,13 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
         FillRect(reinterpret_cast<HDC>(wParam), &rect, g_bgBrush);
         return 1;
     }
+    case WM_PAINT: {
+        PAINTSTRUCT paint{};
+        HDC dc = BeginPaint(window, &paint);
+        if (g_appIcon) DrawIconEx(dc, 24, 16, g_appIcon, 42, 42, 0, nullptr, DI_NORMAL);
+        EndPaint(window, &paint);
+        return 0;
+    }
     case WM_TIMER:
         if (wParam == kTimerId) {
             if (g_overlay && WaitForSingleObject(g_overlay, 0) == WAIT_OBJECT_0) {
@@ -499,15 +506,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
 
     g_main = CreateWindowExW(WS_EX_APPWINDOW, kClass, L"MangoHud",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 440, 300,
+        CW_USEDEFAULT, CW_USEDEFAULT, 440, 280,
         nullptr, nullptr, instance, nullptr);
     if (!g_main) return 2;
 
     SendMessageW(g_main, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(g_appIcon));
     SendMessageW(g_main, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(g_appIcon));
 
-    make_child(L"STATIC", L"MangoHud", SS_LEFT, 24, 18, 370, 34, 0);
-    HWND subtitle = make_child(L"STATIC", L"Control automático", SS_LEFT, 25, 52, 370, 22, 0);
+    make_child(L"STATIC", L"MangoHud", SS_LEFT, 76, 18, 330, 34, 0);
+    HWND subtitle = make_child(L"STATIC", L"Control automático", SS_LEFT, 78, 52, 330, 22, 0);
     if (subtitle) SendMessageW(subtitle, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
     g_status = make_child(L"STATIC", L"Buscando aplicaciones…", SS_LEFT, 25, 84, 390, 23, ID_STATUS);
 
@@ -521,11 +528,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     g_enabledCheck = make_child(L"BUTTON", L"HUD activado",
         BS_AUTOCHECKBOX | WS_TABSTOP, 25, 211, 390, 26, ID_ENABLED);
 
-    HWND hint = make_child(L"STATIC",
-        L"La X oculta esta ventana. Usa el icono de la bandeja para salir.",
-        SS_LEFT, 25, 245, 390, 20, 0);
-    if (hint) SendMessageW(hint, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
-
+    
     if (g_titleFont) {
         HWND title = FindWindowExW(g_main, nullptr, L"STATIC", L"MangoHud");
         if (title) SendMessageW(title, WM_SETFONT, reinterpret_cast<WPARAM>(g_titleFont), TRUE);
