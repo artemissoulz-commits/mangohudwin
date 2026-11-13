@@ -66,19 +66,19 @@ juegos protegidos o con anti-cheat.
 
 SKINS DEL HUD
 --------------
-MangoHud Control incluye ocho temas seleccionables:
+MangoHud Control incluye cinco temas seleccionables:
 
-- Dark: tema oscuro original del port.
-- Mango: colores naranja y verde de la identidad MangoHud.
+- Dark: tema oscuro original del port y apariencia predeterminada.
+- Mango: identidad naranja y verde de MangoHud.
 - Minimal: diseño compacto original del port.
 - Glass: panel translucido original del port.
-- Catppuccin Latte, Frappe, Macchiato y Mocha: paletas comunitarias adaptadas
-  desde Catppuccin para MangoHud.
+- Animal Crossing: diseño personalizado con burbujas individuales redondeadas,
+  pequeñas sombras y una paleta pastel inspirada en Animal Crossing.
 
-Dark sigue siendo la apariencia predeterminada. Dark y Minimal se mantienen
-sin cambios. Los temas Catppuccin conservan su atribucion y licencia MIT en
-skins\Catppuccin-LICENSE.txt; el proyecto original esta en:
-https://github.com/catppuccin/mangohud
+Dark y Minimal se mantienen sin modificaciones. Animal Crossing no es solo
+una paleta: activa un estilo adicional del renderizador para separar los
+bloques de metricas en tarjetas suaves. Los cuatro temas originales conservan
+su comportamiento anterior.
 
 El tema elegido se guarda y se aplica al HUD conectado al recibir el siguiente
 frame; tambien queda seleccionado para los siguientes juegos. Los archivos

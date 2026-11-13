@@ -964,4 +964,120 @@ if (-not $d3d12Source.Contains('if (!d3d_overlay_enabled())')) {
     $d3d12Source = $d3d12Updated
     [System.IO.File]::WriteAllText($d3d12Path, $d3d12Source, [System.Text.UTF8Encoding]::new($false))
 }
+
+# Animal Crossing theme: draw each legacy-layout metric group as a rounded,
+# pastel bubble. This is a renderer change, not just a config palette.
+$overlayPath = Join-Path $root 'src/overlay.cpp'
+$overlaySource = [System.IO.File]::ReadAllText($overlayPath)
+if (-not $overlaySource.Contains('MangoHudAnimalCrossingBubbles')) {
+    $spacingAnchor = '   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8,-3));'
+    $spacingReplacement = @'
+   const bool mangoHudAnimalCrossingBubbles = params.round_corners >= 14.0f;
+   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+       mangoHudAnimalCrossingBubbles ? ImVec2(8, 4) : ImVec2(8, -3));
+'@
+    if (-not $overlaySource.Contains($spacingAnchor)) {
+        throw 'Animal Crossing spacing insertion point missing in overlay.cpp.'
+    }
+    $overlaySource = $overlaySource.Replace($spacingAnchor, $spacingReplacement.TrimEnd())
+
+    $loopPattern = '(?s)        HUDElements\.place = 0;\r?\n        for \(auto& func : HUDElements\.ordered_functions\)\s*\{\r?\n            if\(!real_params->enabled\[OVERLAY_PARAM_ENABLED_horizontal\] && func\.name != "exec"\)\r?\n               ImGui::TableNextRow\(\);\r?\n            func\.run\(\);\r?\n            HUDElements\.place \+= 1;\r?\n            if\(!HUDElements\.ordered_functions\.empty\(\) && real_params->enabled\[OVERLAY_PARAM_ENABLED_horizontal\] && HUDElements\.ordered_functions\.size\(\) != \(size_t\)HUDElements\.place\)\r?\n               horizontal_separator\(params\);\r?\n        \}'
+    $loopReplacement = @'
+        // MangoHudAnimalCrossingBubbles: reserve one rounded card per metric group.
+        const bool mangoHudAnimalCrossingBubbles =
+            real_params->round_corners >= 14.0f &&
+            !real_params->enabled[OVERLAY_PARAM_ENABLED_horizontal];
+        bool mangoHudBubbleRowPrepared = false;
+        HUDElements.place = 0;
+        for (auto& func : HUDElements.ordered_functions) {
+            if (!real_params->enabled[OVERLAY_PARAM_ENABLED_horizontal] &&
+                func.name != "exec" && !mangoHudBubbleRowPrepared)
+                ImGui::TableNextRow();
+
+            mangoHudBubbleRowPrepared = false;
+            ImGuiTable* bubbleTable = mangoHudAnimalCrossingBubbles
+                ? ImGui::GetCurrentTable() : nullptr;
+            const float bubbleTop = bubbleTable ? bubbleTable->RowPosY2 : 0.0f;
+
+            func.run();
+
+            if (bubbleTable && func.name != "exec") {
+                // Finish the metric's row(s), then draw into the table's
+                // background channel so the bubble stays behind all text/graphs.
+                ImGui::TableNextRow();
+                const float bubbleBottom = bubbleTable->RowPosY1;
+                if (bubbleBottom - bubbleTop > 4.0f) {
+                    ImDrawList* drawList = ImGui::GetWindowDrawList();
+                    const int previousChannel = bubbleTable->DrawSplitter->_Current;
+                    bubbleTable->DrawSplitter->SetCurrentChannel(drawList, 0);
+
+                    const float left = bubbleTable->WorkRect.Min.x;
+                    const float right = bubbleTable->WorkRect.Max.x;
+                    const ImVec2 cardMin(left + 3.0f, bubbleTop + 1.0f);
+                    const ImVec2 cardMax(right - 3.0f, bubbleBottom - 1.0f);
+                    static const ImU32 bubbleFills[] = {
+                        IM_COL32(248, 237, 211, 238),
+                        IM_COL32(225, 239, 215, 238),
+                        IM_COL32(221, 237, 243, 238),
+                        IM_COL32(247, 224, 207, 238),
+                        IM_COL32(235, 226, 244, 238)
+                    };
+                    static const ImU32 bubbleAccents[] = {
+                        IM_COL32(187, 148, 91, 255),
+                        IM_COL32(123, 164, 112, 255),
+                        IM_COL32(108, 158, 180, 255),
+                        IM_COL32(201, 139, 111, 255),
+                        IM_COL32(155, 137, 183, 255)
+                    };
+                    const size_t bubbleIndex = static_cast<size_t>(HUDElements.place % 5);
+                    drawList->AddRectFilled(
+                        ImVec2(cardMin.x, cardMin.y + 1.5f),
+                        ImVec2(cardMax.x, cardMax.y + 1.5f),
+                        IM_COL32(72, 82, 60, 28), 10.0f);
+                    drawList->AddRectFilled(
+                        cardMin, cardMax, bubbleFills[bubbleIndex], 10.0f);
+                    drawList->AddRect(
+                        cardMin, cardMax, IM_COL32(255, 255, 255, 210),
+                        10.0f, ImDrawFlags_RoundCornersAll, 1.0f);
+                    drawList->AddRectFilled(
+                        ImVec2(left + 7.0f, cardMin.y + 5.0f),
+                        ImVec2(left + 10.0f, cardMax.y - 5.0f),
+                        bubbleAccents[bubbleIndex], 2.0f);
+
+                    bubbleTable->DrawSplitter->SetCurrentChannel(drawList, previousChannel);
+                }
+                mangoHudBubbleRowPrepared = true;
+            }
+
+            HUDElements.place += 1;
+            if (!HUDElements.ordered_functions.empty() &&
+                real_params->enabled[OVERLAY_PARAM_ENABLED_horizontal] &&
+                HUDElements.ordered_functions.size() != (size_t)HUDElements.place)
+                horizontal_separator(params);
+        }
+'@
+    $updatedOverlay = [regex]::Replace($overlaySource, $loopPattern, $loopReplacement, 1)
+    if ($updatedOverlay -eq $overlaySource) {
+        throw 'Could not install Animal Crossing rounded-bubble metric layout.'
+    }
+    [System.IO.File]::WriteAllText($overlayPath, $updatedOverlay, [System.Text.UTF8Encoding]::new($false))
+}
+
+$hudElementsPath = Join-Path $root 'src/hud_elements.cpp'
+$hudElementsSource = [System.IO.File]::ReadAllText($hudElementsPath)
+if (-not $hudElementsSource.Contains('MangoHudAnimalCrossingFrameRounding')) {
+    $roundingAnchor = '    style.WindowRounding = params.round_corners;'
+    $roundingReplacement = @'
+    style.WindowRounding = params.round_corners;
+    // MangoHudAnimalCrossingFrameRounding: round graph/progress frames only for this theme.
+    style.FrameRounding = params.round_corners >= 14.0f ? 9.0f : 0.0f;
+    style.AntiAliasedFill = params.round_corners >= 14.0f;
+'@
+    if (-not $hudElementsSource.Contains($roundingAnchor)) {
+        throw 'Animal Crossing frame-rounding insertion point missing in hud_elements.cpp.'
+    }
+    $hudElementsSource = $hudElementsSource.Replace($roundingAnchor, $roundingReplacement.TrimEnd())
+    [System.IO.File]::WriteAllText($hudElementsPath, $hudElementsSource, [System.Text.UTF8Encoding]::new($false))
+}
+
 Write-Host 'DXGI proxy now supports in-process initialization and per-PID Control activation.'

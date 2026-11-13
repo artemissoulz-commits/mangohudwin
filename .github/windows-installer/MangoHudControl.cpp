@@ -869,12 +869,12 @@ struct SkinChoice {
     const wchar_t* file;
 };
 constexpr SkinChoice kSkins[] = {
-    // The four original Windows-port skins. Dark is the default;
-    // Dark and Minimal are intentionally preserved unchanged.
+    // Keep the four original Windows-port themes and add one renderer-backed style.
     {L"Dark", L"Dark.conf"},
     {L"Mango", L"Mango.conf"},
     {L"Minimal", L"Minimal.conf"},
-    {L"Glass", L"Glass.conf"}
+    {L"Glass", L"Glass.conf"},
+    {L"Animal Crossing", L"Animal-Crossing.conf"}
 };
 
 int load_skin_selection() {

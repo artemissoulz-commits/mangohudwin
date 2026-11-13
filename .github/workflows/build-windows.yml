@@ -357,40 +357,36 @@ jobs:
         run: |
           ./dev/package_windows.ps1 -BuildDirectory build-msvc -PackageDirectory package
 
-          # Bundle the four original Windows-port skins plus four Catppuccin community palettes.
-          # Dark remains the fresh-install default; Dark and Minimal are unchanged.
-          $skinsSource = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\skins'
-          $skinsDestination = Join-Path (Get-Location).Path 'package\skins'
+          # Bundle the four original skins plus the custom renderer-backed Animal Crossing theme.
+          # Dark remains the fresh-install default; Dark and Minimal stay unchanged.
+          $skinsSource = Join-Path $env:GITHUB_WORKSPACE '.github\\windows-installer\\skins'
+          $skinsDestination = Join-Path (Get-Location).Path 'package\\skins'
           New-Item -ItemType Directory -Path $skinsDestination -Force | Out-Null
           $skinFiles = @(
             'Dark.conf',
             'Mango.conf',
             'Minimal.conf',
             'Glass.conf',
-            'Catppuccin-Latte.conf',
-            'Catppuccin-Frappe.conf',
-            'Catppuccin-Macchiato.conf',
-            'Catppuccin-Mocha.conf',
-            'Catppuccin-LICENSE.txt'
+            'Animal-Crossing.conf'
           )
           foreach ($skin in $skinFiles) {
             $skinPath = Join-Path $skinsSource $skin
-            if (-not (Test-Path -LiteralPath $skinPath)) { throw "Missing skin or license: $skinPath" }
+            if (-not (Test-Path -LiteralPath $skinPath)) { throw "Missing skin: $skinPath" }
             Copy-Item -LiteralPath $skinPath -Destination (Join-Path $skinsDestination $skin) -Force
           }
-          Copy-Item -LiteralPath (Join-Path $skinsSource 'Dark.conf') -Destination 'package\config\MangoHud.conf' -Force
-          $skinReadme = "`nHUD SKINS`n- Open MangoHudControl.exe and select Dark, Mango, Minimal, Glass or one of the four Catppuccin palettes under APARIENCIA DEL HUD.`n- Dark remains the default. The original Dark and Minimal skins are unchanged.`n- Catppuccin configurations are adapted from catppuccin/mangohud and their MIT attribution/license is in skins\Catppuccin-LICENSE.txt.`n- The selection is saved and the connected HUD reloads on its next frame; new connections use the selected skin too.`n"
-          $packageReadme = 'package\README-EXPERIMENTAL.txt'
+          Copy-Item -LiteralPath (Join-Path $skinsSource 'Dark.conf') -Destination 'package\\config\\MangoHud.conf' -Force
+          $skinReadme = "`nHUD SKINS`n- Select Dark, Mango, Minimal, Glass or Animal Crossing under APARIENCIA DEL HUD in MangoHudControl.exe.`n- Animal Crossing uses a custom rounded-bubble renderer layout with soft pastel fills and spacing; it is more than a palette change.`n- Dark remains the default. Dark and Minimal remain unchanged.`n- The selection is saved and the connected HUD reloads on its next frame; new connections use the selected skin too.`n"
+          $packageReadme = 'package\\README-EXPERIMENTAL.txt'
           if (Test-Path -LiteralPath $packageReadme) {
             Add-Content -LiteralPath $packageReadme -Value $skinReadme -Encoding UTF8
           }
-          Write-Host 'Eight HUD skins and Catppuccin attribution copied and verified.'
+          Write-Host 'Five HUD skins, including the custom Animal Crossing bubble layout, copied and verified.'
           foreach ($skin in $skinFiles) {
             if (-not (Test-Path -LiteralPath (Join-Path $skinsDestination $skin))) {
-              throw "Skin or license was not packaged: $skin"
+              throw "Skin was not packaged: $skin"
             }
           }
-          if (-not (Test-Path -LiteralPath 'package\config\MangoHud.conf')) {
+          if (-not (Test-Path -LiteralPath 'package\\config\\MangoHud.conf')) {
             throw 'Default MangoHud.conf missing after skin packaging.'
           }
           $zip = 'MangoHud-Windows-v2-prueba-NO-INSTALAR.zip'
