@@ -10,13 +10,14 @@
 #include <cwctype>
 #include <iterator>
 #include <utility>
+#include <cwchar>
 
 namespace {
 constexpr wchar_t kClass[] = L"MangoHudControl";
 constexpr UINT kTrayMessage = WM_APP + 7;
 constexpr UINT_PTR kTimerId = 1;
 constexpr UINT kExitMessage = WM_APP + 8;
-constexpr int ID_ENABLED = 1103, ID_STATUS = 1104;
+constexpr int ID_ENABLED = 1103, ID_STATUS = 1104, ID_SKIN = 1105;
 constexpr int MENU_OPEN = 1, MENU_TOGGLE = 2, MENU_EXIT = 3;
 
 struct AppWindow {
@@ -25,7 +26,7 @@ struct AppWindow {
     std::wstring title;
 };
 
-HWND g_main{}, g_enabledCheck{}, g_status{};
+HWND g_main{}, g_enabledCheck{}, g_status{}, g_skinCombo{};
 HANDLE g_overlay{};
 HANDLE g_overlayEvent{};
 HANDLE g_dxgiOverlayEvent{};
@@ -772,6 +773,63 @@ void toggle_enabled() {
     if (g_enabledCheck) SendMessageW(g_enabledCheck, BM_SETCHECK, g_enabled ? BST_CHECKED : BST_UNCHECKED, 0);
 }
 
+struct SkinChoice {
+    const wchar_t* name;
+    const wchar_t* file;
+};
+constexpr SkinChoice kSkins[] = {
+    {L"Dark", L"Dark.conf"},
+    {L"Mango", L"Mango.conf"},
+    {L"Minimal", L"Minimal.conf"},
+    {L"Glass", L"Glass.conf"}
+};
+
+int load_skin_selection() {
+    wchar_t selected[32]{};
+    const std::wstring iniPath = app_dir() + L"\\skin.ini";
+    GetPrivateProfileStringW(L"Skin", L"Name", L"Dark",
+        selected, static_cast<DWORD>(std::size(selected)), iniPath.c_str());
+    for (int i = 0; i < static_cast<int>(std::size(kSkins)); ++i) {
+        if (_wcsicmp(selected, kSkins[i].name) == 0) return i;
+    }
+    return 0;
+}
+
+void request_skin_reload(DWORD pid) {
+    if (!pid) return;
+    wchar_t eventName[96]{};
+    swprintf_s(eventName, L"Local\\MangoHudReloadConfig_%lu", pid);
+    HANDLE eventHandle = OpenEventW(EVENT_MODIFY_STATE, FALSE, eventName);
+    if (!eventHandle)
+        eventHandle = CreateEventW(nullptr, FALSE, FALSE, eventName);
+    if (eventHandle) {
+        SetEvent(eventHandle);
+        CloseHandle(eventHandle);
+    }
+}
+
+bool apply_skin(int index) {
+    if (index < 0 || index >= static_cast<int>(std::size(kSkins))) return false;
+    const std::wstring root = app_dir();
+    const std::wstring source = root + L"\\skins\\" + kSkins[index].file;
+    const std::wstring destination = root + L"\\config\\MangoHud.conf";
+    if (!CopyFileW(source.c_str(), destination.c_str(), FALSE)) {
+        set_status(L"No se pudo aplicar la skin (error " + std::to_wstring(GetLastError()) + L").");
+        return false;
+    }
+
+    const std::wstring iniPath = root + L"\\skin.ini";
+    WritePrivateProfileStringW(L"Skin", L"Name", kSkins[index].name, iniPath.c_str());
+
+    if (g_overlayPid && g_overlay && WaitForSingleObject(g_overlay, 0) == WAIT_TIMEOUT) {
+        request_skin_reload(g_overlayPid);
+        set_status(L"Skin " + std::wstring(kSkins[index].name) + L" aplicada · recargando el HUD…");
+    } else {
+        set_status(L"Skin " + std::wstring(kSkins[index].name) + L" guardada · se aplicará al conectar");
+    }
+    return true;
+}
+
 void exit_application() {
     remove_tray();
     stop_overlay(false);
@@ -791,6 +849,11 @@ HWND make_child(const wchar_t* klass, const wchar_t* text, DWORD style,
 LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_COMMAND:
+        if (LOWORD(wParam) == ID_SKIN && HIWORD(wParam) == CBN_SELCHANGE) {
+            const LRESULT selected = SendMessageW(g_skinCombo, CB_GETCURSEL, 0, 0);
+            if (selected != CB_ERR) apply_skin(static_cast<int>(selected));
+            return 0;
+        }
         if (LOWORD(wParam) == ID_ENABLED && HIWORD(wParam) == BN_CLICKED) {
             g_enabled = SendMessageW(g_enabledCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
             if (g_enabled) {
@@ -932,7 +995,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
 
     g_main = CreateWindowExW(WS_EX_APPWINDOW, kClass, L"MangoHud",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 520, 360,
+        CW_USEDEFAULT, CW_USEDEFAULT, 520, 420,
         nullptr, nullptr, instance, nullptr);
     if (!g_main) return 2;
 
@@ -951,9 +1014,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         SS_LEFT, 54, 187, 410, 20, 0);
     if (followHint) SendMessageW(followHint, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
 
+    HWND skinCaption = make_child(L"STATIC", L"APARIENCIA DEL HUD", SS_LEFT, 30, 242, 150, 20, 0);
+    if (skinCaption) SendMessageW(skinCaption, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
+    g_skinCombo = make_child(L"COMBOBOX", L"",
+        CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL,
+        190, 236, 280, 170, ID_SKIN);
+    if (g_skinCombo) {
+        for (const auto& skin : kSkins)
+            SendMessageW(g_skinCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(skin.name));
+        SendMessageW(g_skinCombo, CB_SETCURSEL, load_skin_selection(), 0);
+    }
+
     g_enabledCheck = make_child(L"BUTTON", L"HUD activado",
-        BS_AUTOCHECKBOX | WS_TABSTOP, 30, 248, 450, 30, ID_ENABLED);
-    HWND footer = make_child(L"STATIC", L"SEGUIMIENTO AUTOMÁTICO", SS_LEFT, 30, 286, 450, 18, 0);
+        BS_AUTOCHECKBOX | WS_TABSTOP, 30, 292, 450, 30, ID_ENABLED);
+    HWND footer = make_child(L"STATIC", L"SEGUIMIENTO AUTOMÁTICO", SS_LEFT, 30, 330, 450, 18, 0);
     if (footer) SendMessageW(footer, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
 
     
