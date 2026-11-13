@@ -141,6 +141,8 @@ $hook = @'
 #include "imgui_impl_win32.h"
 #include "imgui_impl_opengl3.h"
 #include <mutex>
+#include <atomic>
+#include <cwchar>
 #include "../overlay.h"
 #include "../hud_elements.h"
 #include "d3d_shared.h"
@@ -153,10 +155,42 @@ std::mutex renderMutex;
 bool hookInstalled = false;
 bool imguiReady = false;
 HWND overlayWindow = nullptr;
+std::atomic<HANDLE> overlayEnabledEvent{nullptr};
+
+void set_opengl_enabled_event(HANDLE eventHandle)
+{
+    if (eventHandle) overlayEnabledEvent.store(eventHandle);
+}
+
+bool overlay_is_enabled()
+{
+    HANDLE eventHandle = overlayEnabledEvent.load();
+    if (!eventHandle) {
+        static LONG retryCounter = 0;
+        const LONG attempt = InterlockedIncrement(&retryCounter);
+        if (attempt == 1 || attempt % 8 == 0) {
+            wchar_t eventName[96] = {};
+            swprintf_s(eventName, L"Local\\MangoHudOpenGLEnabled_%lu", GetCurrentProcessId());
+            HANDLE candidate = OpenEventW(SYNCHRONIZE, FALSE, eventName);
+            if (candidate) {
+                HANDLE expected = nullptr;
+                if (overlayEnabledEvent.compare_exchange_strong(expected, candidate))
+                    eventHandle = candidate;
+                else {
+                    CloseHandle(candidate);
+                    eventHandle = expected;
+                }
+            }
+        }
+    }
+    return eventHandle && WaitForSingleObject(eventHandle, 0) == WAIT_OBJECT_0;
+}
 
 BOOL WINAPI hookedSwapBuffers(HDC dc)
 {
     std::lock_guard<std::mutex> renderLock(renderMutex);
+    if (!overlay_is_enabled())
+        return realSwapBuffers ? realSwapBuffers(dc) : FALSE;
     if (wglGetCurrentContext()) {
         dx_version = kiero::RenderType::OpenGL;
         // The overlay API label reads sw_stats.engine, not dx_version.
@@ -248,25 +282,76 @@ bool init_opengl_hook()
 
 $bootstrap = @'
 #include <windows.h>
+#include <string>
+#include <vector>
+#include <cwchar>
 #include "opengl_hook.h"
 
-static void signalLauncherReady()
+namespace {
+HANDLE loadedEventHandle = nullptr;
+
+void load_installed_config(HMODULE module)
 {
-    // Named event: MangoHudOpenGLReady_<launcher-pid>_<tick-count>.
-    wchar_t eventName[512] = {};
-    const DWORD capacity = static_cast<DWORD>(sizeof(eventName) / sizeof(eventName[0]));
-    const DWORD length = GetEnvironmentVariableW(L"MANGOHUD_OPENGL_READY_EVENT", eventName, capacity);
-    if (length == 0 || length >= capacity) return;
-    HANDLE eventHandle = OpenEventW(EVENT_MODIFY_STATE, FALSE, eventName);
-    if (eventHandle) {
-        SetEvent(eventHandle);
-        CloseHandle(eventHandle);
-    }
+    std::vector<wchar_t> buffer(32768, L'\0');
+    const DWORD length = GetModuleFileNameW(module, buffer.data(),
+        static_cast<DWORD>(buffer.size()));
+    if (!length || length >= buffer.size()) return;
+
+    std::wstring directory(buffer.data(), length);
+    size_t slash = directory.find_last_of(L"\\/");
+    if (slash == std::wstring::npos) return;
+    directory.resize(slash); // ...\bin
+    slash = directory.find_last_of(L"\\/");
+    if (slash == std::wstring::npos) return;
+    directory.resize(slash); // installation root
+
+    const std::wstring configPath = directory + L"\\config\\MangoHud.conf";
+    if (GetFileAttributesW(configPath.c_str()) != INVALID_FILE_ATTRIBUTES)
+        SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", configPath.c_str());
 }
 
-static DWORD WINAPI install_opengl_hook_thread(void*)
+void signal_ready_events()
 {
-    if (init_opengl_hook()) signalLauncherReady();
+    const DWORD pid = GetCurrentProcessId();
+    wchar_t eventName[96] = {};
+
+    swprintf_s(eventName, L"Local\\MangoHudOpenGLEnabled_%lu", pid);
+    HANDLE enabledEvent = OpenEventW(SYNCHRONIZE, FALSE, eventName);
+    if (enabledEvent) set_opengl_enabled_event(enabledEvent);
+
+    // Keep a marker handle open for the life of the DLL. Control uses this
+    // marker to distinguish the PID-aware hook from older MangoHud builds.
+    swprintf_s(eventName, L"Local\\MangoHudOpenGLLoaded_%lu", pid);
+    loadedEventHandle = CreateEventW(nullptr, TRUE, FALSE, eventName);
+    if (loadedEventHandle) SetEvent(loadedEventHandle);
+
+    swprintf_s(eventName, L"Local\\MangoHudOpenGLReady_%lu", pid);
+    HANDLE readyEvent = OpenEventW(EVENT_MODIFY_STATE, FALSE, eventName);
+    if (readyEvent) {
+        SetEvent(readyEvent);
+        CloseHandle(readyEvent);
+    }
+
+    // Backward-compatible handshake for MangoHudLauncher.exe.
+    wchar_t launcherEventName[512] = {};
+    const DWORD capacity = static_cast<DWORD>(
+        sizeof(launcherEventName) / sizeof(launcherEventName[0]));
+    const DWORD length = GetEnvironmentVariableW(
+        L"MANGOHUD_OPENGL_READY_EVENT", launcherEventName, capacity);
+    if (length > 0 && length < capacity) {
+        HANDLE launcherEvent = OpenEventW(EVENT_MODIFY_STATE, FALSE, launcherEventName);
+        if (launcherEvent) {
+            SetEvent(launcherEvent);
+            CloseHandle(launcherEvent);
+        }
+    }
+}
+} // namespace
+
+static DWORD WINAPI install_opengl_hook_thread(void* parameter)
+{
+    load_installed_config(static_cast<HMODULE>(parameter));
+    if (init_opengl_hook()) signal_ready_events();
     return 0;
 }
 
@@ -274,7 +359,8 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
 {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(instance);
-        HANDLE thread = CreateThread(nullptr, 0, install_opengl_hook_thread, nullptr, 0, nullptr);
+        HANDLE thread = CreateThread(nullptr, 0, install_opengl_hook_thread,
+                                     instance, 0, nullptr);
         if (thread) CloseHandle(thread);
     }
     return TRUE;
@@ -283,7 +369,9 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
 
 $header = @'
 #pragma once
+#include <windows.h>
 bool init_opengl_hook();
+void set_opengl_enabled_event(HANDLE eventHandle);
 '@
 
 $launcher = @'
@@ -420,14 +508,28 @@ int wmain(int argc, wchar_t** argv)
         std::wcerr << L"CreateProcess failed: " << GetLastError() << L"\n";
         return 8;
     }
-    if (!inject_dll(process.hProcess, dllPath.wstring())) {
+    wchar_t enabledName[96] = {};
+    swprintf_s(enabledName, L"Local\\MangoHudOpenGLEnabled_%lu", process.dwProcessId);
+    HANDLE enabledEvent = CreateEventW(nullptr, TRUE, TRUE, enabledName);
+    if (!enabledEvent) {
         const DWORD error = GetLastError();
         TerminateProcess(process.hProcess, 1);
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
         CloseHandle(readyEvent);
-        std::wcerr << L"Could not inject MangoHud.dll (Win32 error " << error << L").\n";
+        std::wcerr << L"Could not create OpenGL enable event: " << error << L"\n";
         return 9;
+    }
+
+    if (!inject_dll(process.hProcess, dllPath.wstring())) {
+        const DWORD error = GetLastError();
+        TerminateProcess(process.hProcess, 1);
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        CloseHandle(enabledEvent);
+        CloseHandle(readyEvent);
+        std::wcerr << L"Could not inject MangoHud.dll (Win32 error " << error << L").\n";
+        return 10;
     }
     const DWORD ready = WaitForSingleObject(readyEvent, 20000);
     CloseHandle(readyEvent);
@@ -435,9 +537,12 @@ int wmain(int argc, wchar_t** argv)
         TerminateProcess(process.hProcess, 1);
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
+        CloseHandle(enabledEvent);
         std::wcerr << L"MangoHud DLL loaded but its OpenGL hook did not report ready.\n";
-        return 10;
+        return 11;
     }
+    SetEvent(enabledEvent);
+    CloseHandle(enabledEvent);
     ResumeThread(process.hThread);
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
