@@ -1110,10 +1110,17 @@ int request_shutdown_for_uninstall() {
     SendMessageTimeoutW(window, kExitMessage, 0, 0,
         SMTO_ABORTIFHUNG | SMTO_BLOCK, 5000, &messageResult);
 
-    DWORD wait = WaitForSingleObject(process, 10000);
+    DWORD wait = WaitForSingleObject(process, 5000);
     if (wait != WAIT_OBJECT_0) {
-        // Compatibility fallback for older Control builds that treated
-        // WM_CLOSE as "minimize to tray" and did not know kExitMessage.
+        // Compatibility path for earlier builds: MENU_EXIT already performed
+        // the same orderly tray, overlay-event and window cleanup.
+        SendMessageTimeoutW(window, WM_COMMAND, MAKEWPARAM(MENU_EXIT, 0), 0,
+            SMTO_ABORTIFHUNG | SMTO_BLOCK, 5000, &messageResult);
+        wait = WaitForSingleObject(process, 10000);
+    }
+    if (wait != WAIT_OBJECT_0) {
+        // Last-resort thread shutdown for legacy instances. The message loop
+        // cleanup still resets the shared overlay events before process exit.
         PostThreadMessageW(threadId, WM_QUIT, 0, 0);
         wait = WaitForSingleObject(process, 10000);
     }
