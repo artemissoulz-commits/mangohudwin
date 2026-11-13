@@ -20,7 +20,7 @@ empiece a ejecutarse. Abre PowerShell y ejecuta:
 
 & "$env:LOCALAPPDATA\Programs\MangoHud\bin\MangoHudLauncher.exe" "C:\Ruta\A\TuAplicacionOpenGL.exe"
 
-El lanzador aplica automaticamente config\\MangoHud.conf al proceso que inicia.
+El lanzador aplica automaticamente config\MangoHud.conf al proceso que inicia.
 Sustituye la ruta por la del ejecutable real. No uses este lanzador con juegos
 protegidos, multijugador con anti-cheat ni software que prohiba la inyeccion.
 
