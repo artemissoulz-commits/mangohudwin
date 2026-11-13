@@ -199,7 +199,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show) {
     const std::wstring iconPath = app_dir() + L"\\MangoHud.ico";
     g_appIcon = static_cast<HICON>(LoadImageW(nullptr, iconPath.c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE));
     WNDCLASSEXW wc{}; wc.cbSize=sizeof(wc); wc.lpfnWndProc=wndproc; wc.hInstance=instance;
-    wc.hCursor=LoadCursorW(nullptr,MAKEINTRESOURCEW(32512)); wc.hIcon=g_appIcon ? g_appIcon : LoadIconW(nullptr,IDI_APPLICATION); wc.hIconSm=wc.hIcon; wc.hbrBackground=g_bgBrush; wc.lpszClassName=kClass;
+    wc.hCursor=LoadCursorW(nullptr,MAKEINTRESOURCEW(32512)); wc.hIcon=g_appIcon ? g_appIcon : LoadIconW(nullptr,MAKEINTRESOURCEW(32512)); wc.hIconSm=wc.hIcon; wc.hbrBackground=g_bgBrush; wc.lpszClassName=kClass;
     if(!RegisterClassExW(&wc)) return 1;
     g_main=CreateWindowExW(WS_EX_APPWINDOW,kClass,L"MangoHud para Windows",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
         CW_USEDEFAULT,CW_USEDEFAULT,480,420,nullptr,nullptr,instance,nullptr);
