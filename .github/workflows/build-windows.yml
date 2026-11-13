@@ -367,13 +367,7 @@ jobs:
             Copy-Item -LiteralPath $skinPath -Destination (Join-Path $skinsDestination $skin) -Force
           }
           Copy-Item -LiteralPath (Join-Path $skinsSource 'Dark.conf') -Destination 'package\\config\\MangoHud.conf' -Force
-          $skinReadme = @'
-
-          HUD SKINS
-          - Open MangoHudControl.exe and select Dark, Mango, Minimal or Glass under APARIENCIA DEL HUD.
-          - The selection is saved. When a game is connected, the current HUD reloads the selected config on its next frame.
-          - The selected skin is also used automatically by newly launched games.
-          '@
+          $skinReadme = "`nHUD SKINS`n- Open MangoHudControl.exe and select Dark, Mango, Minimal or Glass under APARIENCIA DEL HUD.`n- The selection is saved. When a game is connected, the current HUD reloads the selected config on its next frame.`n- The selected skin is also used automatically by newly launched games.`n"
           $packageReadme = 'package\\README-EXPERIMENTAL.txt'
           if (Test-Path -LiteralPath $packageReadme) {
             Add-Content -LiteralPath $packageReadme -Value $skinReadme -Encoding UTF8
