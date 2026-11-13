@@ -981,7 +981,7 @@ if (-not $overlaySource.Contains('MangoHudAnimalCrossingBubbles')) {
     }
     $overlaySource = $overlaySource.Replace($spacingAnchor, $spacingReplacement.TrimEnd())
 
-    $loopPattern = '(?s)HUDElements\\.place\\s*=\\s*0;\\s*for\\s*\\(auto&\\s*func\\s*:\\s*HUDElements\\.ordered_functions\\)\\s*\\{.*?horizontal_separator\\(params\\);\\s*\\}'
+    $loopPattern = 'HUDElements\.place\s*=\s*0;\s*for\s*\(auto&\s*func\s*:\s*HUDElements\.ordered_functions\)\s*\{[\s\S]*?horizontal_separator\(params\);\s*\}'
     $loopReplacement = @'
         // MangoHudAnimalCrossingBubbles: draw one independent rounded card per metric block.
         const bool mangoHudAnimalCrossingBubbles =
