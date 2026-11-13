@@ -90,6 +90,14 @@ if (-not $overlaySource.Contains('proc == "firefox.exe"')) {
     [System.IO.File]::WriteAllText($overlaySourcePath, $overlaySource, [System.Text.UTF8Encoding]::new($false))
 }
 
+$oldEtwNotice = 'SPDLOG_WARN("ETW FPS tracing unavailable (need admin). FPS will not be shown.");'
+$newEtwNotice = 'SPDLOG_INFO("ETW FPS tracing unavailable without elevation; overlay continues without ETW frame data.");'
+if ($overlaySource.Contains($oldEtwNotice)) {
+    $overlaySource = $overlaySource.Replace($oldEtwNotice, $newEtwNotice)
+    [System.IO.File]::WriteAllText($overlaySourcePath, $overlaySource, [System.Text.UTF8Encoding]::new($false))
+}
+
+
 $etwSourcePath = Join-Path $root 'src/app/fps_etw.cpp'
 $etwSource = [System.IO.File]::ReadAllText($etwSourcePath)
 $oldEtwError = 'SPDLOG_ERROR("ETW: StartTrace failed (error {}). Need admin privileges.", status);'
@@ -445,16 +453,20 @@ if (-not $packageScript.Contains($requiredControl)) {
 
 $copyControl = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudControl.exe'') -Destination (Join-Path $packageRoot ''MangoHudControl.exe'')'
 if (-not $packageScript.Contains($copyControl)) {
-    # Append this after all existing package operations, avoiding dependence
-    # on the exact formatting of upstream Copy-Item commands.
-    $packageScript = $packageScript.TrimEnd() + $nl + $copyControl + $nl
+    $inventoryMarker = '$binaryPaths = @('
+    $inventoryIndex = $packageScript.IndexOf($inventoryMarker)
+    if ($inventoryIndex -lt 0) { throw 'Package binary inventory section missing.' }
+    $packageScript = $packageScript.Insert($inventoryIndex, $copyControl + $nl + $nl)
 }
 
-$readmeLauncher = '- bin\MangoHudLauncher.exe: starts an executable suspended, injects MangoHud.dll, then resumes it for OpenGL testing.'
 $readmeControl = '- MangoHudControl.exe: dark control window, process-specific target, minimize-to-tray, Stop, and Exit.'
 if (-not $packageScript.Contains($readmeControl)) {
-    if (-not $packageScript.Contains($readmeLauncher)) { throw 'Package README binary list anchor missing.' }
-    $packageScript = $packageScript.Replace($readmeLauncher, $readmeLauncher + $nl + $readmeControl)
+    $readmePrefix = '- bin\MangoHudLauncher.exe:'
+    $readmeIndex = $packageScript.IndexOf($readmePrefix)
+    if ($readmeIndex -lt 0) { throw 'Package README launcher entry missing.' }
+    $readmeLineEnd = $packageScript.IndexOf($nl, $readmeIndex)
+    if ($readmeLineEnd -lt 0) { $readmeLineEnd = $packageScript.Length }
+    $packageScript = $packageScript.Insert($readmeLineEnd, $nl + $readmeControl)
 }
 
 $inventoryDll = '    (Join-Path $packageRoot ''bin\MangoHud.dll''),'
