@@ -356,6 +356,37 @@ jobs:
           if (-not (Test-Path -LiteralPath $zip)) { throw 'No se generó el ZIP de prueba' }
           Get-Item -LiteralPath $zip | Select-Object FullName, Length
 
+      - name: Prepare branded installer assets
+        shell: pwsh
+        run: |
+          $assetDir = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\assets'
+          function Expand-GzipBase64Asset([string]$sourceName, [string]$destinationName, [byte[]]$signature) {
+            $sourcePath = Join-Path $assetDir $sourceName
+            $destinationPath = Join-Path $assetDir $destinationName
+            $encoded = (Get-Content -LiteralPath $sourcePath -Raw).Trim()
+            $compressed = [Convert]::FromBase64String($encoded)
+            $inputStream = [System.IO.MemoryStream]::new($compressed)
+            $gzip = [System.IO.Compression.GZipStream]::new($inputStream, [System.IO.Compression.CompressionMode]::Decompress)
+            $outputStream = [System.IO.MemoryStream]::new()
+            try {
+              $gzip.CopyTo($outputStream)
+              $bytes = $outputStream.ToArray()
+            } finally {
+              $gzip.Dispose()
+              $inputStream.Dispose()
+              $outputStream.Dispose()
+            }
+            if ($bytes.Length -lt $signature.Length) { throw "Asset is empty: $sourceName" }
+            for ($i = 0; $i -lt $signature.Length; $i++) {
+              if ($bytes[$i] -ne $signature[$i]) { throw "Invalid file signature for $destinationName" }
+            }
+            [System.IO.File]::WriteAllBytes($destinationPath, $bytes)
+            Get-Item -LiteralPath $destinationPath | Select-Object Name, Length
+          }
+          Expand-GzipBase64Asset 'MangoHud.ico.gz.b64' 'MangoHud.ico' ([byte[]](0,0,1,0))
+          Expand-GzipBase64Asset 'WizardImage.bmp.gz.b64' 'WizardImage.bmp' ([byte[]](66,77))
+          Expand-GzipBase64Asset 'WizardSmallImage.bmp.gz.b64' 'WizardSmallImage.bmp' ([byte[]](66,77))
+
       - name: Build Windows installer with Inno Setup
         shell: pwsh
         run: |
