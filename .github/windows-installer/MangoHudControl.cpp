@@ -224,7 +224,7 @@ void set_target(const AppWindow& app, bool automatic) {
     if (changed && g_enabled) start_overlay();
     else if (!g_overlay && g_enabled) start_overlay();
 
-    if (automatic) set_status(L"Seguimiento automático · " + (g_targetTitle.empty() ? g_targetExe : g_targetTitle));
+    if (automatic && g_overlay) set_status(L"HUD activo · " + (g_targetTitle.empty() ? g_targetExe : g_targetTitle));
 }
 
 void update_combo_selection() {
@@ -293,7 +293,7 @@ void refresh_apps() {
         }
     }
 
-    if (!g_targetPid && !g_apps.empty()) {
+    if (!g_targetPid && !g_apps.empty() && g_autoSwitch) {
         const AppWindow* chosen = &g_apps.front();
         for (const auto& app : g_apps) if (app.pid == foregroundPid) { chosen = &app; break; }
         set_target(*chosen, g_autoSwitch);
@@ -305,6 +305,8 @@ void refresh_apps() {
 
     if (g_apps.empty() && !g_targetPid)
         set_status(L"Esperando a que abras una aplicación compatible");
+    else if (!g_targetPid && !g_autoSwitch)
+        set_status(L"Selecciona una aplicación detectada");
 }
 
 void add_tray() {
