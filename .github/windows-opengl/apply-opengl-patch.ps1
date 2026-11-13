@@ -445,12 +445,9 @@ if (-not $packageScript.Contains($requiredControl)) {
 
 $copyControl = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudControl.exe'') -Destination (Join-Path $packageRoot ''MangoHudControl.exe'')'
 if (-not $packageScript.Contains($copyControl)) {
-    $launcherCopyMarker = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudLauncher.exe'')'
-    $launcherCopyIndex = $packageScript.IndexOf($launcherCopyMarker)
-    if ($launcherCopyIndex -lt 0) { throw 'MangoHudLauncher package-copy command missing.' }
-    $lineEnd = $packageScript.IndexOf($nl, $launcherCopyIndex)
-    if ($lineEnd -lt 0) { $lineEnd = $packageScript.Length }
-    $packageScript = $packageScript.Insert($lineEnd, $nl + $copyControl)
+    # Append this after all existing package operations, avoiding dependence
+    # on the exact formatting of upstream Copy-Item commands.
+    $packageScript = $packageScript.TrimEnd() + $nl + $copyControl + $nl
 }
 
 $readmeLauncher = '- bin\MangoHudLauncher.exe: starts an executable suspended, injects MangoHud.dll, then resumes it for OpenGL testing.'
