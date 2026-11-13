@@ -49,6 +49,7 @@ Source: "{#RepoRoot}\source\LICENSE"; DestDir: "{app}"; DestName: "LICENSE"; Fla
 ; instructions. Preserve any config file the user already edited on upgrades.
 Source: "{#PackageRoot}\*"; DestDir: "{app}"; Excludes: "README-EXPERIMENTAL.txt,config\MangoHud.conf"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PackageRoot}\config\MangoHud.conf"; DestDir: "{app}\config"; Flags: onlyifdoesntexist
+Source: "assets\MangoHud.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README-Windows.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
