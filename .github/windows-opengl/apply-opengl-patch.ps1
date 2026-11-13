@@ -56,7 +56,8 @@ mangohud_launcher = executable(
 
 $hook = @'
 #include <windows.h>
-#include <GL/gl.h>
+// Do not include <GL/gl.h> here: this source tree has src/gl/gl.h (Linux GLX shim),
+// and the Windows WGL declarations are provided by the Windows SDK headers.
 #include <MinHook.h>
 #include <imgui.h>
 #include <implot.h>
