@@ -13,6 +13,18 @@ defecto en la carpeta local de tu usuario:
 Para quitarlo, usa Configuracion de Windows > Aplicaciones > Aplicaciones
 instaladas.
 
+PANEL DE CONTROL
+----------------
+Abre MangoHud Control desde el menu Inicio. El panel se inicia con
+Firestorm-Releasex64.exe como proceso objetivo para que no siga Firefox ni
+otra ventana que pongas en primer plano. Puedes escribir otro nombre .exe,
+usar Iniciar / reiniciar o Detener, y minimizar el panel a la bandeja del
+sistema. Haz doble clic en el icono de MangoHud para volver a abrir el panel;
+con clic derecho puedes cerrar MangoHud por completo.
+
+El panel lanza el overlay oculto, por lo que no aparece una ventana de consola
+adicional. No necesitas ejecutar el panel como administrador.
+
 OPENGL (LANZADOR EXPERIMENTAL)
 ------------------------------
 El lanzador inyecta MangoHud.dll en un proceso x64 antes de que la aplicacion
@@ -50,10 +62,10 @@ una instalacion existente para no sobrescribir los cambios del usuario.
 
 ESTADO DE VALIDACION
 --------------------
-La compilacion MSVC x64 y la generacion del paquete se comprueban en CI. Una
+La compilacion MSVC x64, el panel de control y la generacion del instalador se comprueban en CI. Una
 compilacion correcta no demuestra que todas las APIs funcionen en todos los
 juegos. OpenGL, Vulkan y DirectX deben seguir probandose en aplicaciones x64
-compatibles. Algunas funciones y metricas pueden estar incompletas.
+compatibles. Algunas funciones y metricas pueden estar incompletas. La captura ETW avanzada de FPS puede requerir permisos elevados; si no los tiene, el resto del overlay sigue funcionando.
 
 Proyecto del port Windows:
 https://github.com/artemissoulz-commits/mangohudwin
