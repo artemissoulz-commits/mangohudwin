@@ -4,13 +4,15 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cwctype>
+#include <iterator>
 
 namespace {
 constexpr wchar_t kClass[] = L"MangoHudControl";
 constexpr UINT kTrayMessage = WM_APP + 7;
 constexpr UINT_PTR kTimerId = 1;
 constexpr UINT kExitMessage = WM_APP + 8;
-constexpr int ID_TARGET = 1101, ID_AUTO = 1102, ID_ENABLED = 1103;
+constexpr int ID_TARGET = 1101, ID_AUTO = 1102, ID_ENABLED = 1103, ID_STATUS = 1104;
 constexpr int MENU_OPEN = 1, MENU_TOGGLE = 2, MENU_EXIT = 3;
 
 struct AppWindow {
@@ -86,7 +88,7 @@ BOOL CALLBACK collect_windows(HWND hwnd, LPARAM parameter) {
         return TRUE;
 
     wchar_t title[512]{};
-    if (GetWindowTextW(hwnd, title, static_cast<int>(std::size(title))) <= 0)
+    if (GetWindowTextW(hwnd, title, 512) <= 0)
         return TRUE;
 
     DWORD pid = 0;
@@ -261,6 +263,7 @@ void refresh_apps() {
         return lower(a.exe) < lower(b.exe);
     });
     const bool changed = !same_apps(g_apps, found);
+    const DWORD previousTargetPid = g_targetPid;
     g_apps = std::move(found);
 
     DWORD foregroundPid = 0;
@@ -296,7 +299,8 @@ void refresh_apps() {
         set_target(*chosen, g_autoSwitch);
     }
 
-    if (changed || (g_targetCombo && SendMessageW(g_targetCombo, CB_GETCOUNT, 0, 0) != static_cast<LRESULT>(g_apps.size())))
+    if (changed || previousTargetPid != g_targetPid ||
+        (g_targetCombo && SendMessageW(g_targetCombo, CB_GETCOUNT, 0, 0) != static_cast<LRESULT>(g_apps.size())))
         update_combo_selection();
 
     if (g_apps.empty() && !g_targetPid)
@@ -416,8 +420,8 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
     case WM_CTLCOLORSTATIC: {
         HDC dc = reinterpret_cast<HDC>(wParam);
         SetBkMode(dc, TRANSPARENT);
-        SetTextColor(dc, GetDlgCtrlID(reinterpret_cast<HWND>(lParam)) == 0 ?
-            GetSysColor(COLOR_GRAYTEXT) : GetSysColor(COLOR_WINDOWTEXT));
+        SetTextColor(dc, GetDlgCtrlID(reinterpret_cast<HWND>(lParam)) == ID_STATUS ?
+            RGB(205, 112, 26) : GetSysColor(COLOR_WINDOWTEXT));
         return reinterpret_cast<LRESULT>(g_bgBrush);
     }
     case WM_ERASEBKGND: {
@@ -505,7 +509,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     make_child(L"STATIC", L"MangoHud", SS_LEFT, 24, 18, 370, 34, 0);
     HWND subtitle = make_child(L"STATIC", L"Control automático", SS_LEFT, 25, 52, 370, 22, 0);
     if (subtitle) SendMessageW(subtitle, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
-    g_status = make_child(L"STATIC", L"Buscando aplicaciones…", SS_LEFT, 25, 84, 390, 23, 0);
+    g_status = make_child(L"STATIC", L"Buscando aplicaciones…", SS_LEFT, 25, 84, 390, 23, ID_STATUS);
 
     make_child(L"STATIC", L"Aplicación detectada", SS_LEFT, 25, 117, 390, 20, 0);
     g_targetCombo = make_child(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
