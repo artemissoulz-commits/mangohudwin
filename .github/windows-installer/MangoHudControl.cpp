@@ -1,6 +1,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
+#include <tlhelp32.h>
+#include <cstdint>
+#include <cwchar>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -24,6 +27,7 @@ struct AppWindow {
 
 HWND g_main{}, g_targetCombo{}, g_autoCheck{}, g_enabledCheck{}, g_status{};
 HANDLE g_overlay{};
+HANDLE g_overlayEvent{};
 DWORD g_overlayPid{}, g_targetPid{};
 std::wstring g_targetExe, g_targetTitle;
 std::vector<AppWindow> g_apps;
@@ -132,88 +136,311 @@ std::wstring target_label(const AppWindow& app) {
     return label;
 }
 
-BOOL CALLBACK close_overlay_window(HWND hwnd, LPARAM parameter) {
-    DWORD pid = 0;
-    GetWindowThreadProcessId(hwnd, &pid);
-    if (pid == static_cast<DWORD>(parameter)) {
-        PostMessageW(hwnd, WM_CLOSE, 0, 0);
-        return FALSE;
+void close_overlay_handles() {
+    if (g_overlayEvent) {
+        ResetEvent(g_overlayEvent);
+        CloseHandle(g_overlayEvent);
+        g_overlayEvent = nullptr;
     }
-    return TRUE;
-}
-
-void stop_overlay(bool announce = true) {
     if (g_overlay) {
-        if (g_overlayPid) EnumWindows(close_overlay_window, static_cast<LPARAM>(g_overlayPid));
-        if (WaitForSingleObject(g_overlay, 1200) == WAIT_TIMEOUT) {
-            TerminateProcess(g_overlay, 0);
-            WaitForSingleObject(g_overlay, 800);
-        }
         CloseHandle(g_overlay);
         g_overlay = nullptr;
     }
     g_overlayPid = 0;
+}
+
+void stop_overlay(bool announce = true) {
+    // This is a handle to the selected app, not a helper process.
+    // Never close or terminate Firestorm: reset its event to hide the HUD.
+    close_overlay_handles();
     if (announce && g_enabled) set_status(L"HUD pausado");
+}
+
+void pause_overlay() {
+    if (g_overlayEvent) ResetEvent(g_overlayEvent);
+    if (g_enabled) set_status(L"HUD pausado");
+}
+
+bool is_x64_process(HANDLE process) {
+    using IsWow64Process2Fn = BOOL (WINAPI *)(HANDLE, USHORT*, USHORT*);
+    HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+    auto isWow64Process2 = kernel32
+        ? reinterpret_cast<IsWow64Process2Fn>(GetProcAddress(kernel32, "IsWow64Process2"))
+        : nullptr;
+
+    if (isWow64Process2) {
+        USHORT processMachine = IMAGE_FILE_MACHINE_UNKNOWN;
+        USHORT nativeMachine = IMAGE_FILE_MACHINE_UNKNOWN;
+        if (!isWow64Process2(process, &processMachine, &nativeMachine))
+            return false;
+        return nativeMachine == IMAGE_FILE_MACHINE_AMD64 &&
+            (processMachine == IMAGE_FILE_MACHINE_UNKNOWN ||
+             processMachine == IMAGE_FILE_MACHINE_AMD64);
+    }
+
+    BOOL wow64 = FALSE;
+    SYSTEM_INFO systemInfo{};
+    GetNativeSystemInfo(&systemInfo);
+    return systemInfo.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 &&
+        IsWow64Process(process, &wow64) && !wow64;
+}
+
+bool process_has_mangohud_module(DWORD pid) {
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+    if (snapshot == INVALID_HANDLE_VALUE) return false;
+
+    MODULEENTRY32W module{};
+    module.dwSize = sizeof(module);
+    bool found = false;
+    if (Module32FirstW(snapshot, &module)) {
+        do {
+            if (_wcsicmp(module.szModule, L"MangoHud.dll") == 0) {
+                found = true;
+                break;
+            }
+        } while (Module32NextW(snapshot, &module));
+    }
+    CloseHandle(snapshot);
+    return found;
+}
+
+bool find_remote_module(DWORD pid, const std::wstring& moduleName, uintptr_t& base) {
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+    if (snapshot == INVALID_HANDLE_VALUE) return false;
+
+    MODULEENTRY32W module{};
+    module.dwSize = sizeof(module);
+    bool found = false;
+    if (Module32FirstW(snapshot, &module)) {
+        do {
+            if (_wcsicmp(module.szModule, moduleName.c_str()) == 0) {
+                base = reinterpret_cast<uintptr_t>(module.modBaseAddr);
+                found = true;
+                break;
+            }
+        } while (Module32NextW(snapshot, &module));
+    }
+    CloseHandle(snapshot);
+    return found;
+}
+
+bool get_remote_load_library(DWORD pid, LPTHREAD_START_ROUTINE& remoteLoadLibrary) {
+    HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+    FARPROC localAddress = kernel32 ? GetProcAddress(kernel32, "LoadLibraryW") : nullptr;
+    if (!localAddress) return false;
+
+    HMODULE ownerModule = nullptr;
+    if (!GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(localAddress), &ownerModule))
+        return false;
+
+    wchar_t ownerPath[MAX_PATH]{};
+    const DWORD length = GetModuleFileNameW(ownerModule, ownerPath, MAX_PATH);
+    if (!length || length >= MAX_PATH) return false;
+
+    const std::wstring ownerName = basename(std::wstring(ownerPath, length));
+    uintptr_t remoteBase = 0;
+    if (!find_remote_module(pid, ownerName, remoteBase)) return false;
+
+    const uintptr_t rva = reinterpret_cast<uintptr_t>(localAddress) -
+        reinterpret_cast<uintptr_t>(ownerModule);
+    remoteLoadLibrary = reinterpret_cast<LPTHREAD_START_ROUTINE>(remoteBase + rva);
+    return true;
+}
+
+bool inject_mangohud_dll(HANDLE process, DWORD pid,
+                         const std::wstring& dllPath, DWORD& errorCode) {
+    LPTHREAD_START_ROUTINE remoteLoadLibrary = nullptr;
+    if (!get_remote_load_library(pid, remoteLoadLibrary)) {
+        errorCode = GetLastError();
+        if (!errorCode) errorCode = ERROR_MOD_NOT_FOUND;
+        return false;
+    }
+
+    const SIZE_T bytes = (dllPath.size() + 1) * sizeof(wchar_t);
+    void* remotePath = VirtualAllocEx(process, nullptr, bytes,
+        MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!remotePath) {
+        errorCode = GetLastError();
+        return false;
+    }
+
+    SIZE_T written = 0;
+    if (!WriteProcessMemory(process, remotePath, dllPath.c_str(), bytes, &written) ||
+        written != bytes) {
+        errorCode = GetLastError();
+        VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+        return false;
+    }
+
+    HANDLE remoteThread = CreateRemoteThread(process, nullptr, 0,
+        remoteLoadLibrary, remotePath, 0, nullptr);
+    if (!remoteThread) {
+        errorCode = GetLastError();
+        VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+        return false;
+    }
+
+    const DWORD waitResult = WaitForSingleObject(remoteThread, 15000);
+    DWORD moduleHandle = 0;
+    const bool loaded = waitResult == WAIT_OBJECT_0 &&
+        GetExitCodeThread(remoteThread, &moduleHandle) && moduleHandle != 0;
+    if (!loaded)
+        errorCode = waitResult == WAIT_TIMEOUT ? WAIT_TIMEOUT : ERROR_DLL_INIT_FAILED;
+
+    CloseHandle(remoteThread);
+    VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+    return loaded;
 }
 
 bool start_overlay() {
     if (!g_enabled) return false;
-    if (g_targetExe.empty()) {
+    if (!g_targetPid || g_targetExe.empty()) {
         set_status(L"Abre Firestorm u otra aplicación compatible");
         return false;
     }
-    if (g_overlay)
-        stop_overlay(false);
 
-    const std::wstring exe = app_dir() + L"\\tools\\MangoHud.exe";
-    if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
-        set_status(L"No se encuentra MangoHud.exe en la instalación");
+    if (g_overlay && g_overlayPid == g_targetPid &&
+        WaitForSingleObject(g_overlay, 0) == WAIT_TIMEOUT) {
+        if (g_overlayEvent && SetEvent(g_overlayEvent)) {
+            set_status(L"HUD conectado · " + g_targetExe +
+                L" (PID " + std::to_wstring(g_targetPid) + L")");
+            return true;
+        }
+    }
+
+    if (g_overlay || g_overlayEvent) stop_overlay(false);
+
+    constexpr DWORD access = PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
+        PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ | SYNCHRONIZE;
+    HANDLE process = OpenProcess(access, FALSE, g_targetPid);
+    if (!process) {
+        const DWORD error = GetLastError();
+        std::wstring message = L"No se pudo acceder al proceso (error " +
+            std::to_wstring(error) + L").";
+        if (error == ERROR_ACCESS_DENIED)
+            message += L" Ejecuta Control con el mismo nivel de permisos que Firestorm.";
+        set_status(message);
         return false;
     }
 
-    const std::wstring command = quote(exe) + L" " + quote(g_targetExe);
-    std::vector<wchar_t> mutableCommand(command.begin(), command.end());
-    mutableCommand.push_back(L'\0');
-
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    startup.dwFlags = STARTF_USESHOWWINDOW;
-    startup.wShowWindow = SW_HIDE;
-    PROCESS_INFORMATION process{};
-
-    const std::wstring configPath = app_dir() + L"\\config\\MangoHud.conf";
-    const bool useConfig = GetFileAttributesW(configPath.c_str()) != INVALID_FILE_ATTRIBUTES;
-    DWORD oldLength = GetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", nullptr, 0);
-    std::vector<wchar_t> oldValue(oldLength ? oldLength : 1, L'\0');
-    const bool hadOld = oldLength > 0 &&
-        GetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", oldValue.data(), oldLength) > 0;
-
-    if (useConfig && !SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", configPath.c_str())) {
-        wchar_t error[128]{};
-        swprintf_s(error, L"No se pudo cargar la configuración (error %lu)", GetLastError());
-        set_status(error);
+    if (!is_x64_process(process)) {
+        CloseHandle(process);
+        set_status(L"OpenGL de MangoHud requiere que la aplicación sea x64.");
         return false;
     }
 
-    const BOOL created = CreateProcessW(exe.c_str(), mutableCommand.data(), nullptr, nullptr,
-        FALSE, CREATE_NO_WINDOW, nullptr, app_dir().c_str(), &startup, &process);
-
-    if (useConfig) {
-        if (hadOld) SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", oldValue.data());
-        else SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", nullptr);
-    }
-
-    if (!created) {
-        wchar_t error[128]{};
-        swprintf_s(error, L"No se pudo iniciar el HUD (error %lu)", GetLastError());
-        set_status(error);
+    const std::wstring dllPath = app_dir() + L"\\bin\\MangoHud.dll";
+    if (GetFileAttributesW(dllPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        CloseHandle(process);
+        set_status(L"No se encuentra bin\\MangoHud.dll en la instalación.");
         return false;
     }
 
-    CloseHandle(process.hThread);
-    g_overlay = process.hProcess;
-    g_overlayPid = process.dwProcessId;
-    set_status(L"HUD activo · " + (g_targetTitle.empty() ? g_targetExe : g_targetTitle));
+    wchar_t enabledName[96]{};
+    wchar_t readyName[96]{};
+    wchar_t loadedName[96]{};
+    swprintf_s(enabledName, L"Local\\MangoHudOpenGLEnabled_%lu", g_targetPid);
+    swprintf_s(readyName, L"Local\\MangoHudOpenGLReady_%lu", g_targetPid);
+    swprintf_s(loadedName, L"Local\\MangoHudOpenGLLoaded_%lu", g_targetPid);
+
+    HANDLE enabledEvent = CreateEventW(nullptr, TRUE, FALSE, enabledName);
+    if (!enabledEvent) {
+        const DWORD error = GetLastError();
+        CloseHandle(process);
+        set_status(L"No se pudo crear el canal de control (error " +
+            std::to_wstring(error) + L").");
+        return false;
+    }
+    ResetEvent(enabledEvent);
+
+    HANDLE readyEvent = CreateEventW(nullptr, TRUE, FALSE, readyName);
+    if (!readyEvent) {
+        const DWORD error = GetLastError();
+        CloseHandle(enabledEvent);
+        CloseHandle(process);
+        set_status(L"No se pudo preparar la señal de inicialización (error " +
+            std::to_wstring(error) + L").");
+        return false;
+    }
+    ResetEvent(readyEvent);
+
+    const bool moduleLoaded = process_has_mangohud_module(g_targetPid);
+    DWORD injectionError = ERROR_SUCCESS;
+    if (moduleLoaded) {
+        // Never inject a second copy. Reuse only a DLL that exposes this PID protocol.
+        HANDLE loadedEvent = OpenEventW(SYNCHRONIZE, FALSE, loadedName);
+        const bool compatible = loadedEvent &&
+            WaitForSingleObject(loadedEvent, 0) == WAIT_OBJECT_0;
+        if (loadedEvent) CloseHandle(loadedEvent);
+        if (!compatible) {
+            CloseHandle(readyEvent);
+            ResetEvent(enabledEvent);
+            CloseHandle(enabledEvent);
+            CloseHandle(process);
+            set_status(L"Firestorm ya tiene una MangoHud.dll anterior cargada. "
+                L"Cierra Firestorm por completo y vuelve a abrirlo para actualizar el hook.");
+            return false;
+        }
+    } else {
+        if (!inject_mangohud_dll(process, g_targetPid, dllPath, injectionError)) {
+            CloseHandle(readyEvent);
+            ResetEvent(enabledEvent);
+            CloseHandle(enabledEvent);
+            CloseHandle(process);
+            std::wstring message = L"No se pudo inyectar MangoHud.dll (error " +
+                std::to_wstring(injectionError) + L").";
+            if (injectionError == ERROR_ACCESS_DENIED)
+                message += L" Comprueba los permisos de Firestorm y MangoHud Control.";
+            set_status(message);
+            return false;
+        }
+
+        const DWORD ready = WaitForSingleObject(readyEvent, 20000);
+        if (ready != WAIT_OBJECT_0) {
+            const DWORD error = ready == WAIT_TIMEOUT ? WAIT_TIMEOUT : GetLastError();
+            CloseHandle(readyEvent);
+            ResetEvent(enabledEvent);
+            CloseHandle(enabledEvent);
+            CloseHandle(process);
+            set_status(L"La DLL se cargó, pero el hook OpenGL no confirmó su inicio "
+                L"(error " + std::to_wstring(error) +
+                L"). Revisa la arquitectura x64 y el registro de MangoHud.");
+            return false;
+        }
+    }
+    CloseHandle(readyEvent);
+
+    HANDLE loadedEvent = OpenEventW(SYNCHRONIZE, FALSE, loadedName);
+    const bool hookReady = loadedEvent &&
+        WaitForSingleObject(loadedEvent, 2000) == WAIT_OBJECT_0;
+    if (loadedEvent) CloseHandle(loadedEvent);
+    if (!hookReady) {
+        ResetEvent(enabledEvent);
+        CloseHandle(enabledEvent);
+        CloseHandle(process);
+        set_status(L"MangoHud.dll está en el proceso, pero no confirmó el protocolo "
+            L"de Control. Reinicia Firestorm antes de volver a probar.");
+        return false;
+    }
+
+    if (!SetEvent(enabledEvent)) {
+        const DWORD error = GetLastError();
+        ResetEvent(enabledEvent);
+        CloseHandle(enabledEvent);
+        CloseHandle(process);
+        set_status(L"No se pudo activar el HUD (error " +
+            std::to_wstring(error) + L").");
+        return false;
+    }
+
+    g_overlay = process;
+    g_overlayEvent = enabledEvent;
+    g_overlayPid = g_targetPid;
+    set_status(L"HUD conectado · " + (g_targetTitle.empty() ? g_targetExe : g_targetTitle) +
+        L" (PID " + std::to_wstring(g_targetPid) + L")");
     return true;
 }
 
@@ -358,8 +585,7 @@ void toggle_enabled() {
         if (g_targetPid && !g_targetExe.empty()) start_overlay();
         else set_status(L"Esperando una aplicación compatible");
     } else {
-        stop_overlay(false);
-        set_status(L"HUD pausado");
+        pause_overlay();
     }
     if (g_enabledCheck) SendMessageW(g_enabledCheck, BM_SETCHECK, g_enabled ? BST_CHECKED : BST_UNCHECKED, 0);
 }
@@ -407,8 +633,7 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
                 if (g_targetPid) start_overlay();
                 else refresh_apps();
             } else {
-                stop_overlay(false);
-                set_status(L"HUD pausado");
+                pause_overlay();
             }
             return 0;
         }
@@ -440,9 +665,7 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
     case WM_TIMER:
         if (wParam == kTimerId) {
             if (g_overlay && WaitForSingleObject(g_overlay, 0) == WAIT_OBJECT_0) {
-                CloseHandle(g_overlay);
-                g_overlay = nullptr;
-                g_overlayPid = 0;
+                stop_overlay(false);
                 g_enabled = false;
                 if (g_enabledCheck) SendMessageW(g_enabledCheck, BM_SETCHECK, BST_UNCHECKED, 0);
                 set_status(L"El HUD se ha detenido");
