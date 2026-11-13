@@ -91,7 +91,6 @@ void add_tray() {
     g_nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     wcscpy_s(g_nid.szTip, L"MangoHud para Windows");
     g_tray = Shell_NotifyIconW(NIM_ADD, &g_nid) == TRUE;
-    if (g_tray) { g_nid.uVersion = NOTIFYICON_VERSION_4; Shell_NotifyIconW(NIM_SETVERSION, &g_nid); }
 }
 void remove_tray() { if (g_tray) { Shell_NotifyIconW(NIM_DELETE, &g_nid); g_tray = false; } }
 void restore() { ShowWindow(g_main, SW_SHOW); ShowWindow(g_main, SW_RESTORE); SetForegroundWindow(g_main); }
