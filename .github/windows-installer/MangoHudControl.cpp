@@ -181,7 +181,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show) {
     wc.hCursor=LoadCursorW(nullptr,IDC_ARROW); wc.hIcon=LoadIconW(nullptr,IDI_APPLICATION); wc.hbrBackground=g_bgBrush; wc.lpszClassName=kClass;
     if(!RegisterClassExW(&wc)) return 1;
     g_main=CreateWindowExW(WS_EX_APPWINDOW,kClass,L"MangoHud para Windows",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
-        CW_USEDEFAULT,CW_USEDEFAULT,480,390,nullptr,nullptr,instance,nullptr);
+        CW_USEDEFAULT,CW_USEDEFAULT,480,420,nullptr,nullptr,instance,nullptr);
     if(!g_main) return 2;
     const BOOL dark=TRUE; DwmSetWindowAttribute(g_main,20,&dark,sizeof(dark));
     child(L"STATIC",L"PROCESO OBJETIVO",0,28,124,200,22,0);
