@@ -22,7 +22,7 @@ No inicia una segunda instancia de Firestorm ni usa MangoHud.exe como proceso
 auxiliar: carga bin\MangoHud.dll dentro del proceso seleccionado y controla
 el HUD con un evento por PID.
 
-Puedes desactivar el seguimiento automatico para elegir una aplicacion concreta.
+El seguimiento automatico es fijo: no hay lista ni selector manual de aplicaciones.
 Pausar o salir de Control oculta el HUD; no cierra ni termina Firestorm. Haz
 doble clic en el icono de MangoHud para volver a abrir el panel; con clic
 derecho puedes cerrar MangoHud por completo.
