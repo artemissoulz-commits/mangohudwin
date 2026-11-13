@@ -359,8 +359,8 @@ jobs:
 
           # Bundle the four original skins plus the custom renderer-backed Animal Crossing theme.
           # Dark remains the fresh-install default; Dark and Minimal stay unchanged.
-          $skinsSource = Join-Path $env:GITHUB_WORKSPACE '.github\\windows-installer\\skins'
-          $skinsDestination = Join-Path (Get-Location).Path 'package\\skins'
+          $skinsSource = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\skins'
+          $skinsDestination = Join-Path (Get-Location).Path 'package\skins'
           New-Item -ItemType Directory -Path $skinsDestination -Force | Out-Null
           $skinFiles = @(
             'Dark.conf',
@@ -374,9 +374,9 @@ jobs:
             if (-not (Test-Path -LiteralPath $skinPath)) { throw "Missing skin: $skinPath" }
             Copy-Item -LiteralPath $skinPath -Destination (Join-Path $skinsDestination $skin) -Force
           }
-          Copy-Item -LiteralPath (Join-Path $skinsSource 'Dark.conf') -Destination 'package\\config\\MangoHud.conf' -Force
+          Copy-Item -LiteralPath (Join-Path $skinsSource 'Dark.conf') -Destination 'package\config\MangoHud.conf' -Force
           $skinReadme = "`nHUD SKINS`n- Select Dark, Mango, Minimal, Glass or Animal Crossing under APARIENCIA DEL HUD in MangoHudControl.exe.`n- Animal Crossing uses a custom rounded-bubble renderer layout with soft pastel fills and spacing; it is more than a palette change.`n- Dark remains the default. Dark and Minimal remain unchanged.`n- The selection is saved and the connected HUD reloads on its next frame; new connections use the selected skin too.`n"
-          $packageReadme = 'package\\README-EXPERIMENTAL.txt'
+          $packageReadme = 'package\README-EXPERIMENTAL.txt'
           if (Test-Path -LiteralPath $packageReadme) {
             Add-Content -LiteralPath $packageReadme -Value $skinReadme -Encoding UTF8
           }
@@ -386,7 +386,7 @@ jobs:
               throw "Skin was not packaged: $skin"
             }
           }
-          if (-not (Test-Path -LiteralPath 'package\\config\\MangoHud.conf')) {
+          if (-not (Test-Path -LiteralPath 'package\config\MangoHud.conf')) {
             throw 'Default MangoHud.conf missing after skin packaging.'
           }
           $zip = 'MangoHud-Windows-v2-prueba-NO-INSTALAR.zip'
