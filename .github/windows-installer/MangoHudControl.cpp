@@ -185,14 +185,27 @@ bool is_x64_process(HANDLE process) {
         IsWow64Process(process, &wow64) && !wow64;
 }
 
-bool process_has_mangohud_module(DWORD pid) {
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+HANDLE create_module_snapshot(DWORD pid) {
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        HANDLE snapshot = CreateToolhelp32Snapshot(
+            TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+        if (snapshot != INVALID_HANDLE_VALUE) return snapshot;
+        if (GetLastError() != ERROR_BAD_LENGTH) break;
+        Sleep(50);
+    }
+    return INVALID_HANDLE_VALUE;
+}
+
+bool process_has_mangohud_module(DWORD pid, bool& querySucceeded) {
+    querySucceeded = false;
+    HANDLE snapshot = create_module_snapshot(pid);
     if (snapshot == INVALID_HANDLE_VALUE) return false;
 
     MODULEENTRY32W module{};
     module.dwSize = sizeof(module);
     bool found = false;
     if (Module32FirstW(snapshot, &module)) {
+        querySucceeded = true;
         do {
             if (_wcsicmp(module.szModule, L"MangoHud.dll") == 0) {
                 found = true;
@@ -205,7 +218,7 @@ bool process_has_mangohud_module(DWORD pid) {
 }
 
 bool find_remote_module(DWORD pid, const std::wstring& moduleName, uintptr_t& base) {
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+    HANDLE snapshot = create_module_snapshot(pid);
     if (snapshot == INVALID_HANDLE_VALUE) return false;
 
     MODULEENTRY32W module{};
@@ -367,7 +380,18 @@ bool start_overlay() {
     }
     ResetEvent(readyEvent);
 
-    const bool moduleLoaded = process_has_mangohud_module(g_targetPid);
+    bool moduleQuerySucceeded = false;
+    const bool moduleLoaded = process_has_mangohud_module(g_targetPid, moduleQuerySucceeded);
+    if (!moduleQuerySucceeded) {
+        CloseHandle(readyEvent);
+        ResetEvent(enabledEvent);
+        CloseHandle(enabledEvent);
+        CloseHandle(process);
+        set_status(L"No se pudo consultar la lista de módulos de Firestorm (error " +
+            std::to_wstring(GetLastError()) + L").");
+        return false;
+    }
+
     DWORD injectionError = ERROR_SUCCESS;
     if (moduleLoaded) {
         // Never inject a second copy. Reuse only a DLL that exposes this PID protocol.
