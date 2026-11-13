@@ -832,43 +832,33 @@ bool d3d_overlay_enabled() {
 # Respect the event on each Present without stopping the game's own rendering.
 $d3d11Path = Join-Path $root 'src/win/d3d11_hook.cpp'
 $d3d11Source = [System.IO.File]::ReadAllText($d3d11Path)
-$d3d11Anchor = @'
-    dx_version = kiero::RenderType::D3D11;
-
-    if (!imgui_inited)
-'@
-$d3d11Replacement = @'
-    dx_version = kiero::RenderType::D3D11;
-
-    if (!d3d_overlay_enabled())
-        return oPresent(pSwapChain, SyncInterval, Flags);
-
-    if (!imgui_inited)
-'@
+$d3d11Path = Join-Path $root 'src/win/d3d11_hook.cpp'
+$d3d11Source = [System.IO.File]::ReadAllText($d3d11Path)
 if (-not $d3d11Source.Contains('if (!d3d_overlay_enabled())')) {
-    if (-not $d3d11Source.Contains($d3d11Anchor)) { throw 'D3D11 Present gate insertion point missing.' }
-    $d3d11Source = $d3d11Source.Replace($d3d11Anchor, $d3d11Replacement)
+    $d3d11Pattern = '(?m)^[ \t]*dx_version[ \t]*=[ \t]*kiero::RenderType::D3D11;[ \t]*
+Write-Host 'DXGI proxy now supports in-process initialization and per-PID Control activation.'
+
+    $d3d11Replacement = '    dx_version = kiero::RenderType::D3D11;' + $nl +
+        '    if (!d3d_overlay_enabled())' + $nl +
+        '        return oPresent(pSwapChain, SyncInterval, Flags);'
+    $d3d11Updated = [regex]::Replace($d3d11Source, $d3d11Pattern, $d3d11Replacement, 1)
+    if ($d3d11Updated -eq $d3d11Source) { throw 'D3D11 Present gate insertion point missing.' }
+    $d3d11Source = $d3d11Updated
     [System.IO.File]::WriteAllText($d3d11Path, $d3d11Source, [System.Text.UTF8Encoding]::new($false))
 }
 
 $d3d12Path = Join-Path $root 'src/win/d3d12_hook.cpp'
 $d3d12Source = [System.IO.File]::ReadAllText($d3d12Path)
-$d3d12Anchor = @'
-    dx_version = kiero::RenderType::D3D12;
-
-#if HAS_IMGUI_DX12
-'@
-$d3d12Replacement = @'
-    dx_version = kiero::RenderType::D3D12;
-
-    if (!d3d_overlay_enabled())
-        return oPresentD3D12(pSwapChain, SyncInterval, Flags);
-
-#if HAS_IMGUI_DX12
-'@
 if (-not $d3d12Source.Contains('if (!d3d_overlay_enabled())')) {
-    if (-not $d3d12Source.Contains($d3d12Anchor)) { throw 'D3D12 Present gate insertion point missing.' }
-    $d3d12Source = $d3d12Source.Replace($d3d12Anchor, $d3d12Replacement)
+    $d3d12Pattern = '(?m)^[ \t]*dx_version[ \t]*=[ \t]*kiero::RenderType::D3D12;[ \t]*
+Write-Host 'DXGI proxy now supports in-process initialization and per-PID Control activation.'
+
+    $d3d12Replacement = '    dx_version = kiero::RenderType::D3D12;' + $nl +
+        '    if (!d3d_overlay_enabled())' + $nl +
+        '        return oPresentD3D12(pSwapChain, SyncInterval, Flags);'
+    $d3d12Updated = [regex]::Replace($d3d12Source, $d3d12Pattern, $d3d12Replacement, 1)
+    if ($d3d12Updated -eq $d3d12Source) { throw 'D3D12 Present gate insertion point missing.' }
+    $d3d12Source = $d3d12Updated
     [System.IO.File]::WriteAllText($d3d12Path, $d3d12Source, [System.Text.UTF8Encoding]::new($false))
 }
 Write-Host 'DXGI proxy now supports in-process initialization and per-PID Control activation.'
