@@ -869,16 +869,12 @@ struct SkinChoice {
     const wchar_t* file;
 };
 constexpr SkinChoice kSkins[] = {
-    // Original Windows-port skins; Dark and Minimal intentionally stay unchanged.
+    // The four original Windows-port skins. Dark is the default;
+    // Dark and Minimal are intentionally preserved unchanged.
     {L"Dark", L"Dark.conf"},
     {L"Mango", L"Mango.conf"},
     {L"Minimal", L"Minimal.conf"},
-    {L"Glass", L"Glass.conf"},
-    // Community palettes adapted from Catppuccin for MangoHud (MIT).
-    {L"Catppuccin Latte", L"Catppuccin-Latte.conf"},
-    {L"Catppuccin Frappe", L"Catppuccin-Frappe.conf"},
-    {L"Catppuccin Macchiato", L"Catppuccin-Macchiato.conf"},
-    {L"Catppuccin Mocha", L"Catppuccin-Mocha.conf"}
+    {L"Glass", L"Glass.conf"}
 };
 
 int load_skin_selection() {
