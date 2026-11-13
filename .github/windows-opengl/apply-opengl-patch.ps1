@@ -242,8 +242,15 @@ BOOL WINAPI hookedSwapBuffers(HDC dc)
             ImGui::Render();
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             if (sw_stats.font_params_hash != params.font_params_hash) {
-                sw_stats.font_params_hash = params.font_params_hash;
+                // Rebuild the atlas and its GL texture together. Updating only
+                // the CPU-side ImGui atlas leaves the old GPU texture in place
+                // and can corrupt text after repeated skin/font changes.
+                ImGui_ImplOpenGL3_DestroyFontsTexture();
                 create_fonts(nullptr, params, sw_stats.font_small, sw_stats.font_text, sw_stats.font_secondary);
+                if (!ImGui_ImplOpenGL3_CreateFontsTexture()) {
+                    SPDLOG_ERROR("MangoHud: could not upload the refreshed OpenGL font atlas.");
+                }
+                sw_stats.font_params_hash = params.font_params_hash;
             }
         }
     }
@@ -916,8 +923,13 @@ void d3d_run(){
         swprintf_s(eventName, L"Local\\MangoHudReloadConfig_%lu", GetCurrentProcessId());
         reloadEvent = OpenEventW(SYNCHRONIZE, FALSE, eventName);
     }
-    if (reloadEvent && WaitForSingleObject(reloadEvent, 0) == WAIT_OBJECT_0)
+    if (reloadEvent && WaitForSingleObject(reloadEvent, 0) == WAIT_OBJECT_0) {
+        // parse_overlay_config clears and rebuilds the option lists from the
+        // complete atomically-swapped config. Mark colors dirty so the OpenGL
+        // renderer converts the new palette on this same frame.
         parse_overlay_config(&params, std::getenv("MANGOHUD_CONFIG"), false);
+        HUDElements.colors.update = true;
+    }
 
 '@
     $updatedShared = [regex]::Replace($sharedSource, $d3dRunPattern, $d3dRunReplacement, 1)
