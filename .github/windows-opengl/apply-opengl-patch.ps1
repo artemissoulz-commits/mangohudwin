@@ -604,7 +604,7 @@ if (-not $packageScript.Contains($copyLauncher) -or -not $packageScript.Contains
 $readmeControl = @'
 CONTROL PANEL (normal use)
 1. Start MangoHudControl.exe from the Start menu or installation folder.
-2. The default process is Firestorm-Releasex64.exe. Change it to another .exe name when needed.
+2. The panel automatically follows the compatible application in the foreground. There is no application selector.
 3. Minimize to the notification area to keep the overlay active without leaving the panel on screen.
 4. Double-click the tray icon to reopen the panel. Right-click it and choose Close MangoHud to stop the overlay and exit.
 
@@ -659,7 +659,7 @@ if ($packageScript.Contains($oldApiList)) {
 }
 
 $metadataAnchor = '    RuntimeValidated = $false'
-$metadataControl = "    ControlPanel = 'Firestorm default target; process selection; minimize-to-tray; stop and exit'"
+$metadataControl = "    ControlPanel = 'Automatic foreground process tracking; no application selector; minimize-to-tray; stop and exit'"
 if (-not $packageScript.Contains('ControlPanel =')) {
     if (-not $packageScript.Contains($metadataAnchor)) { throw 'Build metadata RuntimeValidated marker missing.' }
     $packageScript = $packageScript.Replace($metadataAnchor, $metadataAnchor + $nl + $metadataControl)
