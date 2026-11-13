@@ -427,76 +427,67 @@ Write-Utf8File 'src/app/mangohud_control.cpp' $controlSource
 Write-Host 'OpenGL WGL hook, launcher, and control panel sources applied.'
 
 
-# Ensure the experimental package actually contains the launcher needed to inject
-# MangoHud.dll into a normal OpenGL executable.
+# Ensure the experimental package contains all files needed by the control panel.
 $packageScriptPath = Join-Path $root 'dev/package_windows.ps1'
 $packageScript = [System.IO.File]::ReadAllText($packageScriptPath)
 
 $requiredDll = '    (Join-Path $buildOut ''MangoHud.dll''),'
-$requiredLauncher = '    (Join-Path $buildOut ''MangoHudLauncher.exe''),
-    (Join-Path $buildOut ''MangoHudControl.exe''),'
+$requiredLauncher = '    (Join-Path $buildOut ''MangoHudLauncher.exe''),'
+$requiredControl = '    (Join-Path $buildOut ''MangoHudControl.exe''),'
 if (-not $packageScript.Contains($requiredLauncher)) {
-    if (-not $packageScript.Contains($requiredDll)) {
-        throw 'Could not find the required-binaries list in dev/package_windows.ps1'
-    }
+    if (-not $packageScript.Contains($requiredDll)) { throw 'Required-binaries list anchor missing.' }
     $packageScript = $packageScript.Replace($requiredDll, $requiredDll + $nl + $requiredLauncher)
 }
-
-$copyDll = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHud.dll'') -Destination (Join-Path $packageRoot ''bin\MangoHud.dll'')'
-$copyLauncher = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudLauncher.exe'') -Destination (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')
-Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudControl.exe'') -Destination (Join-Path $packageRoot ''MangoHudControl.exe')'
-if (-not $packageScript.Contains($copyLauncher)) {
-    if (-not $packageScript.Contains($copyDll)) {
-        throw 'Could not find the MangoHud.dll package-copy command'
-    }
-    $packageScript = $packageScript.Replace($copyDll, $copyDll + $nl + $copyLauncher)
+if (-not $packageScript.Contains($requiredControl)) {
+    if (-not $packageScript.Contains($requiredLauncher)) { throw 'MangoHudLauncher required-binary entry missing.' }
+    $packageScript = $packageScript.Replace($requiredLauncher, $requiredLauncher + $nl + $requiredControl)
 }
 
-$readmeDll = '- bin\MangoHud.dll: Vulkan layer DLL.'
-$readmeLauncher = '- bin\MangoHudLauncher.exe: starts an executable suspended, injects MangoHud.dll, then resumes it for OpenGL testing.
-- MangoHudControl.exe: dark GUI, process-specific target, minimize-to-tray, Stop, and Exit.'
-if (-not $packageScript.Contains($readmeLauncher)) {
-    if (-not $packageScript.Contains($readmeDll)) {
-        throw 'Could not find the package README binary list'
-    }
-    $packageScript = $packageScript.Replace($readmeDll, $readmeDll + $nl + $readmeLauncher)
+$copyLauncher = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudLauncher.exe'') -Destination (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')'
+$copyControl = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudControl.exe'') -Destination (Join-Path $packageRoot ''MangoHudControl.exe'')'
+if (-not $packageScript.Contains($copyControl)) {
+    if (-not $packageScript.Contains($copyLauncher)) { throw 'MangoHudLauncher package-copy command missing.' }
+    $packageScript = $packageScript.Replace($copyLauncher, $copyLauncher + $nl + $copyControl)
 }
 
-$inventoryDll = '    (Join-Path $packageRoot ''bin\MangoHud.dll''),'
-$inventoryLauncher = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe''),
-    (Join-Path $packageRoot ''MangoHudControl.exe''),'
-if (-not $packageScript.Contains($inventoryLauncher)) {
-    if (-not $packageScript.Contains($inventoryDll)) {
-        throw 'Could not find the package binary inventory list'
-    }
-    $packageScript = $packageScript.Replace($inventoryDll, $inventoryDll + $nl + $inventoryLauncher)
+$readmeLauncher = '- bin\MangoHudLauncher.exe: starts an executable suspended, injects MangoHud.dll, then resumes it for OpenGL testing.'
+$readmeControl = '- MangoHudControl.exe: dark control window, process-specific target, minimize-to-tray, Stop, and Exit.'
+if (-not $packageScript.Contains($readmeControl)) {
+    if (-not $packageScript.Contains($readmeLauncher)) { throw 'Package README binary list anchor missing.' }
+    $packageScript = $packageScript.Replace($readmeLauncher, $readmeLauncher + $nl + $readmeControl)
 }
 
-[System.IO.File]::WriteAllText($packageScriptPath, $packageScript, [System.Text.UTF8Encoding]::new($false))
-Write-Host 'OpenGL launcher added to required package files, readme, and binary inventory.'
+$inventoryLauncher = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe''),'
+$inventoryControl = '    (Join-Path $packageRoot ''MangoHudControl.exe''),'
+if (-not $packageScript.Contains($inventoryControl)) {
+    if (-not $packageScript.Contains($inventoryLauncher)) { throw 'Binary inventory launcher entry missing.' }
+    $packageScript = $packageScript.Replace($inventoryLauncher, $inventoryLauncher + $nl + $inventoryControl)
+}
 
+$binaryLauncher = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')'
+$binaryControl = '    (Join-Path $packageRoot ''MangoHudControl.exe'')'
+if (-not $packageScript.Contains($binaryControl)) {
+    if ($packageScript.Contains($binaryLauncher + ',')) {
+        $packageScript = $packageScript.Replace($binaryLauncher + ',', $binaryLauncher + ',' + $nl + $binaryControl)
+    } elseif ($packageScript.Contains($binaryLauncher)) {
+        $packageScript = $packageScript.Replace($binaryLauncher, $binaryLauncher + ',' + $nl + $binaryControl)
+    } else {
+        throw 'Binary SHA/dependency inventory launcher entry missing.'
+    }
+}
 
-# Keep the experimental package documentation aligned with the included WGL hook.
-$openGlTestMarker = 'CONTROL PANEL (normal use)
+$controlDocs = @'
+CONTROL PANEL (normal use)
 1. Start MangoHudControl.exe from the Start menu or installation folder.
 2. The default process is Firestorm-Releasex64.exe. Change it to another .exe name when needed.
 3. Minimize to the notification area to keep the overlay active without leaving the panel on screen.
 4. Double-click the tray icon to reopen the panel. Right-click it and choose Close MangoHud to stop the overlay and exit.
 
-VULKAN TEST (does not write to the Windows Registry)'
-$openGlTestSection = @'
-OPENGL TEST (x64 test applications only; use a disposable application)
-1. Open PowerShell in the package folder.
-2. Run: .\bin\MangoHudLauncher.exe "C:\Games\OpenGLTest\OpenGLTest.exe"
-3. The launcher starts the game suspended, injects bin\MangoHud.dll, waits for the WGL hook, then starts the game.
-Do not use this experimental injector with protected multiplayer or anti-cheat games.
-
 '@
-if (-not $packageScript.Contains('OPENGL TEST (x64 test applications only')) {
-    if (-not $packageScript.Contains($openGlTestMarker)) {
-        throw 'Could not find the README Vulkan test section'
-    }
-    $packageScript = $packageScript.Replace($openGlTestMarker, $openGlTestSection + $openGlTestMarker)
+$vulkanMarker = 'VULKAN TEST (does not write to the Windows Registry)'
+if (-not $packageScript.Contains('CONTROL PANEL (normal use)')) {
+    if (-not $packageScript.Contains($vulkanMarker)) { throw 'Package README Vulkan section marker missing.' }
+    $packageScript = $packageScript.Replace($vulkanMarker, $controlDocs + $vulkanMarker)
 }
 
 $oldSupport = 'OpenGL: not ported in this snapshot.'
@@ -504,20 +495,22 @@ $newSupport = 'OpenGL: WGL SwapBuffers hook and launcher built; runtime validati
 if ($packageScript.Contains($oldSupport)) {
     $packageScript = $packageScript.Replace($oldSupport, $newSupport)
 }
-
 $oldApiList = "    GraphicsAPIs = @('Vulkan build target', 'Direct3D 11 build target', 'Direct3D 12 MSVC build target')"
-$newApiList = "    GraphicsAPIs = @('Vulkan build target', 'Direct3D 11 build target', 'Direct3D 12 MSVC build target', 'OpenGL WGL hook build target')"
+$newApiList = "    GraphicsAPIs = @('Vulkan build target', 'Direct3D 11 build target', 'Direct3D 12 MSVC build target', 'OpenGL WGL hook build target', 'Windows control panel')"
 if ($packageScript.Contains($oldApiList)) {
     $packageScript = $packageScript.Replace($oldApiList, $newApiList)
 }
-$oldOpenGlMeta = "    OpenGL = 'Not ported'"
-$newOpenGlMeta = "    OpenGL = 'WGL SwapBuffers hook and launcher built; runtime validation pending'"
-if ($packageScript.Contains($oldOpenGlMeta)) {
-    $packageScript = $packageScript.Replace($oldOpenGlMeta, $newOpenGlMeta)
+
+$metadataAnchor = '    RuntimeValidated = $false'
+$metadataControl = "    ControlPanel = 'Firestorm default target; process selection; minimize-to-tray; stop and exit'"
+if (-not $packageScript.Contains('ControlPanel =')) {
+    if (-not $packageScript.Contains($metadataAnchor)) { throw 'Build metadata RuntimeValidated marker missing.' }
+    $packageScript = $packageScript.Replace($metadataAnchor, $metadataAnchor + $nl + $metadataControl)
 }
 
 [System.IO.File]::WriteAllText($packageScriptPath, $packageScript, [System.Text.UTF8Encoding]::new($false))
-Write-Host 'OpenGL hook, tray controller, and package metadata updated.'
+Write-Host 'Windows control panel added to package, inventory, and README.'
+
 
 # MANGOHUD_CONFIG is an inline option string, not a filename. Vulkan's test
 # launcher uses MANGOHUD_CONFIGFILE for the installed config file; unset the
