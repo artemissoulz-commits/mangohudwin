@@ -76,8 +76,27 @@ bool start_overlay() {
     std::vector<wchar_t> mutableCmd(cmd.begin(), cmd.end()); mutableCmd.push_back(0);
     STARTUPINFOW si{}; si.cb = sizeof(si); si.dwFlags = STARTF_USESHOWWINDOW; si.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION pi{};
-    if (!CreateProcessW(exe.c_str(), mutableCmd.data(), nullptr, nullptr, FALSE,
-        CREATE_NO_WINDOW, nullptr, app_dir().c_str(), &si, &pi)) {
+
+    // Pass the installed config only to the overlay child process; restore the
+    // controller's environment immediately after CreateProcessW.
+    const std::wstring configPath = app_dir() + L"\\config\\MangoHud.conf";
+    const bool useInstalledConfig = GetFileAttributesW(configPath.c_str()) != INVALID_FILE_ATTRIBUTES;
+    DWORD oldConfigLength = GetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", nullptr, 0);
+    std::vector<wchar_t> oldConfig(oldConfigLength ? oldConfigLength : 1, L'\\0');
+    const bool hadOldConfig = oldConfigLength > 0 &&
+        GetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", oldConfig.data(), oldConfigLength) > 0;
+    if (useInstalledConfig && !SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", configPath.c_str())) {
+        wchar_t msg[160]{}; swprintf_s(msg, L"No se pudo aplicar MangoHud.conf (error %lu)", GetLastError());
+        status(msg); return false;
+    }
+
+    const BOOL created = CreateProcessW(exe.c_str(), mutableCmd.data(), nullptr, nullptr, FALSE,
+        CREATE_NO_WINDOW, nullptr, app_dir().c_str(), &si, &pi);
+    if (useInstalledConfig) {
+        if (hadOldConfig) SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", oldConfig.data());
+        else SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", nullptr);
+    }
+    if (!created) {
         wchar_t msg[128]{}; swprintf_s(msg, L"No se pudo iniciar MangoHud.exe (error %lu)", GetLastError());
         status(msg); return false;
     }
