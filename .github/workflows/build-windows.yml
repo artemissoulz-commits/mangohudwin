@@ -2,6 +2,9 @@
 name: MangoHud Windows - MSVC x64 (D3D11-D3D12-Vulkan)
 
 on:
+  push:
+    branches:
+      - windows-opengl-wgl
   workflow_dispatch:
 
 permissions:
@@ -74,6 +77,12 @@ jobs:
           git -C source add --all
           git -C source -c user.name='GitHub Actions' -c user.email='actions@github.local' commit -m 'Source archive snapshot'
           git -C source tag v0.8.3
+
+      - name: Apply OpenGL WGL hook and launcher
+        shell: pwsh
+        working-directory: source
+        run: |
+          & "${env:GITHUB_WORKSPACE}/.github/windows-opengl/apply-opengl-patch.ps1"
 
 
       - name: Fix Winsock2 include order
