@@ -28,7 +28,8 @@ struct AppWindow {
 HWND g_main{}, g_enabledCheck{}, g_status{};
 HANDLE g_overlay{};
 HANDLE g_overlayEvent{};
-DWORD g_overlayPid{}, g_targetPid{};
+DWORD g_overlayPid{}, g_targetPid{}, g_lastAttemptPid{};
+ULONGLONG g_lastAttemptTick{};
 std::wstring g_targetExe, g_targetTitle;
 NOTIFYICONDATAW g_nid{};
 bool g_tray{}, g_enabled{true};
@@ -298,6 +299,9 @@ bool start_overlay() {
         return false;
     }
 
+    g_lastAttemptPid = g_targetPid;
+    g_lastAttemptTick = GetTickCount64();
+
     if (g_overlay && g_overlayPid == g_targetPid &&
         WaitForSingleObject(g_overlay, 0) == WAIT_TIMEOUT) {
         if (g_overlayEvent && SetEvent(g_overlayEvent)) {
@@ -467,8 +471,22 @@ void refresh_apps() {
     if (!g_enabled) return;
 
     AppWindow foreground{};
-    if (get_foreground_app(foreground) && foreground.pid != g_targetPid)
+    if (!get_foreground_app(foreground)) return;
+
+    if (foreground.pid != g_targetPid) {
         set_target(foreground);
+        return;
+    }
+
+    // A failed first injection must not leave the HUD permanently detached.
+    // Retry the same foreground process every 4 seconds without reinjecting
+    // while a live process handle and its PID control event are already held.
+    const bool disconnected = !g_overlay || !g_overlayEvent ||
+        WaitForSingleObject(g_overlay, 0) != WAIT_TIMEOUT;
+    const bool retryWindowElapsed = g_lastAttemptPid != foreground.pid ||
+        GetTickCount64() - g_lastAttemptTick >= 4000;
+    if (disconnected && retryWindowElapsed)
+        start_overlay();
 }
 
 void add_tray() {
