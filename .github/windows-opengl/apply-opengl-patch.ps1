@@ -157,14 +157,6 @@ bool imguiReady = false;
 HWND overlayWindow = nullptr;
 std::atomic<HANDLE> overlayEnabledEvent{nullptr};
 
-void set_opengl_enabled_event(HANDLE eventHandle)
-{
-    if (!eventHandle) return;
-    HANDLE expected = nullptr;
-    if (!overlayEnabledEvent.compare_exchange_strong(expected, eventHandle))
-        CloseHandle(eventHandle);
-}
-
 bool overlay_is_enabled()
 {
     HANDLE eventHandle = overlayEnabledEvent.load();
@@ -258,6 +250,14 @@ BOOL WINAPI hookedSwapBuffers(HDC dc)
     return realSwapBuffers ? realSwapBuffers(dc) : FALSE;
 }
 } // namespace
+
+void set_opengl_enabled_event(HANDLE eventHandle)
+{
+    if (!eventHandle) return;
+    HANDLE expected = nullptr;
+    if (!overlayEnabledEvent.compare_exchange_strong(expected, eventHandle))
+        CloseHandle(eventHandle);
+}
 
 bool init_opengl_hook()
 {
