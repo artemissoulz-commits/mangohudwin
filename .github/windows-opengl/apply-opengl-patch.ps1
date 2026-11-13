@@ -178,9 +178,10 @@ BOOL WINAPI hookedSwapBuffers(HDC dc)
                 if (platformReady && rendererReady) {
                     RECT rect{};
                     GetClientRect(hwnd, &rect);
-                    ImGui::GetIO().DisplaySize = ImVec2(
+                    window_size = ImVec2(
                         static_cast<float>(rect.right - rect.left),
                         static_cast<float>(rect.bottom - rect.top));
+                    ImGui::GetIO().DisplaySize = window_size;
                     create_fonts(nullptr, params, sw_stats.font_small, sw_stats.font_text, sw_stats.font_secondary);
                     sw_stats.font_params_hash = params.font_params_hash;
                     imguiReady = true;
@@ -196,9 +197,10 @@ BOOL WINAPI hookedSwapBuffers(HDC dc)
         if (imguiReady) {
             RECT rect{};
             if (overlayWindow && GetClientRect(overlayWindow, &rect)) {
-                ImGui::GetIO().DisplaySize = ImVec2(
+                window_size = ImVec2(
                     static_cast<float>(rect.right - rect.left),
                     static_cast<float>(rect.bottom - rect.top));
+                ImGui::GetIO().DisplaySize = window_size;
             }
             d3d_run();
             if (HUDElements.colors.update) HUDElements.convert_colors(params);
