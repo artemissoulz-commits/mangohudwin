@@ -7,6 +7,7 @@ on:
       - windows-opengl-wgl
       - windows-opengl-wgl-package-fix
       - fix/opengl-control-attach-running-process
+      - fix/control-auto-focus-ui-sharp-logo
   pull_request:
     branches:
       - main
