@@ -457,22 +457,19 @@ if (-not $packageScript.Contains($readmeControl)) {
     $packageScript = $packageScript.Replace($readmeLauncher, $readmeLauncher + $nl + $readmeControl)
 }
 
+$inventoryDll = '    (Join-Path $packageRoot ''bin\MangoHud.dll''),'
 $inventoryLauncher = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe''),'
+$inventoryLauncherNoComma = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')'
 $inventoryControl = '    (Join-Path $packageRoot ''MangoHudControl.exe''),'
 if (-not $packageScript.Contains($inventoryControl)) {
-    if (-not $packageScript.Contains($inventoryLauncher)) { throw 'Binary inventory launcher entry missing.' }
-    $packageScript = $packageScript.Replace($inventoryLauncher, $inventoryLauncher + $nl + $inventoryControl)
-}
-
-$binaryLauncher = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')'
-$binaryControl = '    (Join-Path $packageRoot ''MangoHudControl.exe'')'
-if (-not $packageScript.Contains($binaryControl)) {
-    if ($packageScript.Contains($binaryLauncher + ',')) {
-        $packageScript = $packageScript.Replace($binaryLauncher + ',', $binaryLauncher + ',' + $nl + $binaryControl)
-    } elseif ($packageScript.Contains($binaryLauncher)) {
-        $packageScript = $packageScript.Replace($binaryLauncher, $binaryLauncher + ',' + $nl + $binaryControl)
+    if ($packageScript.Contains($inventoryLauncher)) {
+        $packageScript = $packageScript.Replace($inventoryLauncher, $inventoryLauncher + $nl + $inventoryControl)
+    } elseif ($packageScript.Contains($inventoryLauncherNoComma)) {
+        $packageScript = $packageScript.Replace($inventoryLauncherNoComma, $inventoryLauncherNoComma + ',' + $nl + $inventoryControl)
+    } elseif ($packageScript.Contains($inventoryDll)) {
+        $packageScript = $packageScript.Replace($inventoryDll, $inventoryDll + $nl + $inventoryLauncher + $nl + $inventoryControl)
     } else {
-        throw 'Binary SHA/dependency inventory launcher entry missing.'
+        throw 'Package binary inventory insertion point missing.'
     }
 }
 
