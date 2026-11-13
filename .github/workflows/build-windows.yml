@@ -368,7 +368,7 @@ jobs:
             'Minimal.conf',
             'Glass.conf',
             'Catppuccin-Latte.conf',
-            'Catppuccin-Frappé.conf',
+            'Catppuccin-Frappe.conf',
             'Catppuccin-Macchiato.conf',
             'Catppuccin-Mocha.conf',
             'Catppuccin-LICENSE.txt'
