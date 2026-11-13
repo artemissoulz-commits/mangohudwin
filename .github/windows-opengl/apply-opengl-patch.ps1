@@ -159,7 +159,10 @@ std::atomic<HANDLE> overlayEnabledEvent{nullptr};
 
 void set_opengl_enabled_event(HANDLE eventHandle)
 {
-    if (eventHandle) overlayEnabledEvent.store(eventHandle);
+    if (!eventHandle) return;
+    HANDLE expected = nullptr;
+    if (!overlayEnabledEvent.compare_exchange_strong(expected, eventHandle))
+        CloseHandle(eventHandle);
 }
 
 bool overlay_is_enabled()
