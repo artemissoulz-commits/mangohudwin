@@ -460,7 +460,7 @@ if (-not $packageScript.Contains($readmeControl)) {
 $inventoryDll = '    (Join-Path $packageRoot ''bin\MangoHud.dll''),'
 $inventoryLauncher = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe''),'
 $inventoryLauncherNoComma = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')'
-$inventoryControl = '    (Join-Path $packageRoot ''MangoHudControl.exe''),'
+$inventoryControl = '    (Join-Path $packageRoot ''MangoHudControl.exe'')'
 if (-not $packageScript.Contains($inventoryControl)) {
     if ($packageScript.Contains($inventoryLauncher)) {
         $packageScript = $packageScript.Replace($inventoryLauncher, $inventoryLauncher + $nl + $inventoryControl)
