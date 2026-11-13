@@ -10,7 +10,6 @@
 #include <cwctype>
 #include <iterator>
 #include <utility>
-#include <cwchar>
 
 namespace {
 constexpr wchar_t kClass[] = L"MangoHudControl";
