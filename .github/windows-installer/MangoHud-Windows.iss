@@ -4,9 +4,9 @@
 
 [Setup]
 AppId={{A867D12A-4C79-4F7A-8B49-4B7E889C03B4}
-AppName=MangoHud for Windows (Experimental)
+AppName=MangoHud para Windows (experimental)
 AppVersion=0.1.0
-AppVerName=MangoHud for Windows (Experimental) 0.1.0
+AppVerName=MangoHud para Windows (experimental) 0.1.0
 AppPublisher=MangoHud Windows Port contributors
 AppPublisherURL=https://github.com/artemissoulz-commits/mangohudwin
 AppSupportURL=https://github.com/artemissoulz-commits/mangohudwin/issues
@@ -20,11 +20,11 @@ MinVersion=10.0.19041
 OutputDir={#OutputDirectory}
 OutputBaseFilename=MangoHud-Windows-Setup-x64
 SetupLogging=yes
-UninstallDisplayName=MangoHud for Windows (Experimental)
+UninstallDisplayName=MangoHud para Windows (experimental)
 UninstallDisplayIcon={app}\tools\MangoHud.exe
 VersionInfoCompany=MangoHud Windows Port
-VersionInfoDescription=Experimental x64 installer for MangoHud on Windows
-VersionInfoProductName=MangoHud for Windows
+VersionInfoDescription=Instalador experimental x64 de MangoHud para Windows
+VersionInfoProductName=MangoHud para Windows
 VersionInfoProductVersion=0.1.0
 VersionInfoVersion=0.1.0.0
 Compression=lzma2/ultra64
@@ -36,7 +36,7 @@ Uninstallable=yes
 AllowNoIcons=yes
 
 [Languages]
-Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "spanish"; MessagesFile: "compiler:Languages\\Spanish.isl"
 
 [Files]
 Source: "{#RepoRoot}\source\LICENSE"; DestDir: "{app}"; DestName: "LICENSE"; Flags: ignoreversion
