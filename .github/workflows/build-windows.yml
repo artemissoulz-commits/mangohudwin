@@ -356,6 +356,29 @@ jobs:
         working-directory: source
         run: |
           ./dev/package_windows.ps1 -BuildDirectory build-msvc -PackageDirectory package
+
+          # Bundle the four selectable UI skins and use Dark as the fresh-install default.
+          $skinsSource = Join-Path $env:GITHUB_WORKSPACE '.github\\windows-installer\\skins'
+          $skinsDestination = Join-Path (Get-Location).Path 'package\\skins'
+          New-Item -ItemType Directory -Path $skinsDestination -Force | Out-Null
+          foreach ($skin in @('Dark.conf', 'Mango.conf', 'Minimal.conf', 'Glass.conf')) {
+            $skinPath = Join-Path $skinsSource $skin
+            if (-not (Test-Path -LiteralPath $skinPath)) { throw "Missing skin: $skinPath" }
+            Copy-Item -LiteralPath $skinPath -Destination (Join-Path $skinsDestination $skin) -Force
+          }
+          Copy-Item -LiteralPath (Join-Path $skinsSource 'Dark.conf') -Destination 'package\\config\\MangoHud.conf' -Force
+          $skinReadme = @'
+
+          HUD SKINS
+          - Open MangoHudControl.exe and select Dark, Mango, Minimal or Glass under APARIENCIA DEL HUD.
+          - The selection is saved. When a game is connected, the current HUD reloads the selected config on its next frame.
+          - The selected skin is also used automatically by newly launched games.
+          '@
+          $packageReadme = 'package\\README-EXPERIMENTAL.txt'
+          if (Test-Path -LiteralPath $packageReadme) {
+            Add-Content -LiteralPath $packageReadme -Value $skinReadme -Encoding UTF8
+          }
+          Write-Host 'Four HUD skins copied and verified.'
           $zip = 'MangoHud-Windows-v2-prueba-NO-INSTALAR.zip'
           if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
           Compress-Archive -Path 'package/*' -DestinationPath $zip -CompressionLevel Optimal
