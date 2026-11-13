@@ -52,7 +52,52 @@ mangohud_launcher = executable(
 '@
     $srcMeson = $srcMeson.Replace($anchor, $target + $anchor)
 }
+
+# Add Win32 shell notification support for the tray icon.
+if (-not $srcMeson.Contains('dep_shell32 =')) {
+    $shellAnchor = "dep_advapi32 = cc.find_library('advapi32', required: true)"
+    if (-not $srcMeson.Contains($shellAnchor)) { throw 'Windows advapi32 declaration anchor missing.' }
+    $srcMeson = $srcMeson.Replace($shellAnchor, $shellAnchor + $nl + "dep_shell32 = cc.find_library('shell32', required: true)")
+}
+$controlTargetAnchor = 'mangohud_overlay = executable('
+if (-not $srcMeson.Contains('mangohud_control = executable(')) {
+    if (-not $srcMeson.Contains($controlTargetAnchor)) { throw 'MangoHud overlay executable anchor missing.' }
+    $controlTarget = @'
+# Native GUI control panel with process targeting and a notification-area icon.
+mangohud_control = executable(
+  'MangoHudControl',
+  files('app/mangohud_control.cpp'),
+  gui_app: true,
+  dependencies: [dep_dwmapi, dep_shell32],
+  install: true,
+)
+
+'@
+    $srcMeson = $srcMeson.Replace($controlTargetAnchor, $controlTarget + $controlTargetAnchor)
+}
+
 [System.IO.File]::WriteAllText($srcPath, $srcMeson, [System.Text.UTF8Encoding]::new($false))
+
+
+# Exclude common browsers from fallback foreground-window selection.
+$overlaySourcePath = Join-Path $root 'src/app/mangohud_overlay.cpp'
+$overlaySource = [System.IO.File]::ReadAllText($overlaySourcePath)
+$browserAnchor = 'proc == "Code.exe"'
+$browserReplacement = 'proc == "Code.exe" || proc == "firefox.exe" || proc == "chrome.exe" || proc == "msedge.exe" || proc == "brave.exe" || proc == "opera.exe"'
+if (-not $overlaySource.Contains('proc == "firefox.exe"')) {
+    if (-not $overlaySource.Contains($browserAnchor)) { throw 'Browser exclusion anchor missing in mangohud_overlay.cpp.' }
+    $overlaySource = $overlaySource.Replace($browserAnchor, $browserReplacement)
+    [System.IO.File]::WriteAllText($overlaySourcePath, $overlaySource, [System.Text.UTF8Encoding]::new($false))
+}
+
+$etwSourcePath = Join-Path $root 'src/app/fps_etw.cpp'
+$etwSource = [System.IO.File]::ReadAllText($etwSourcePath)
+$oldEtwError = 'SPDLOG_ERROR("ETW: StartTrace failed (error {}). Need admin privileges.", status);'
+$newEtwWarning = 'SPDLOG_WARN("ETW FPS tracing unavailable without elevation (StartTrace error {}). The overlay remains active.", status);'
+if ($etwSource.Contains($oldEtwError)) {
+    $etwSource = $etwSource.Replace($oldEtwError, $newEtwWarning)
+    [System.IO.File]::WriteAllText($etwSourcePath, $etwSource, [System.Text.UTF8Encoding]::new($false))
+}
 
 $hook = @'
 #include <windows.h>
@@ -372,7 +417,14 @@ Write-Utf8File 'src/win/opengl_hook.cpp' $hook
 Write-Utf8File 'src/win/opengl_hook.h' $header
 Write-Utf8File 'src/win/opengl_bootstrap.cpp' $bootstrap
 Write-Utf8File 'src/app/mangohud_launcher.cpp' $launcher
-Write-Host 'OpenGL WGL hook and launcher applied.'
+
+$controlTemplatePath = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\MangoHudControl.cpp'
+if (-not (Test-Path -LiteralPath $controlTemplatePath)) {
+    throw "MangoHud control-panel source not found: $controlTemplatePath"
+}
+$controlSource = [System.IO.File]::ReadAllText($controlTemplatePath)
+Write-Utf8File 'src/app/mangohud_control.cpp' $controlSource
+Write-Host 'OpenGL WGL hook, launcher, and control panel sources applied.'
 
 
 # Ensure the experimental package actually contains the launcher needed to inject
@@ -381,7 +433,8 @@ $packageScriptPath = Join-Path $root 'dev/package_windows.ps1'
 $packageScript = [System.IO.File]::ReadAllText($packageScriptPath)
 
 $requiredDll = '    (Join-Path $buildOut ''MangoHud.dll''),'
-$requiredLauncher = '    (Join-Path $buildOut ''MangoHudLauncher.exe''),'
+$requiredLauncher = '    (Join-Path $buildOut ''MangoHudLauncher.exe''),
+    (Join-Path $buildOut ''MangoHudControl.exe''),'
 if (-not $packageScript.Contains($requiredLauncher)) {
     if (-not $packageScript.Contains($requiredDll)) {
         throw 'Could not find the required-binaries list in dev/package_windows.ps1'
@@ -390,7 +443,8 @@ if (-not $packageScript.Contains($requiredLauncher)) {
 }
 
 $copyDll = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHud.dll'') -Destination (Join-Path $packageRoot ''bin\MangoHud.dll'')'
-$copyLauncher = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudLauncher.exe'') -Destination (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')'
+$copyLauncher = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudLauncher.exe'') -Destination (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')
+Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudControl.exe'') -Destination (Join-Path $packageRoot ''MangoHudControl.exe')'
 if (-not $packageScript.Contains($copyLauncher)) {
     if (-not $packageScript.Contains($copyDll)) {
         throw 'Could not find the MangoHud.dll package-copy command'
@@ -399,7 +453,8 @@ if (-not $packageScript.Contains($copyLauncher)) {
 }
 
 $readmeDll = '- bin\MangoHud.dll: Vulkan layer DLL.'
-$readmeLauncher = '- bin\MangoHudLauncher.exe: starts an executable suspended, injects MangoHud.dll, then resumes it for OpenGL testing.'
+$readmeLauncher = '- bin\MangoHudLauncher.exe: starts an executable suspended, injects MangoHud.dll, then resumes it for OpenGL testing.
+- MangoHudControl.exe: dark GUI, process-specific target, minimize-to-tray, Stop, and Exit.'
 if (-not $packageScript.Contains($readmeLauncher)) {
     if (-not $packageScript.Contains($readmeDll)) {
         throw 'Could not find the package README binary list'
@@ -408,7 +463,8 @@ if (-not $packageScript.Contains($readmeLauncher)) {
 }
 
 $inventoryDll = '    (Join-Path $packageRoot ''bin\MangoHud.dll''),'
-$inventoryLauncher = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe''),'
+$inventoryLauncher = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe''),
+    (Join-Path $packageRoot ''MangoHudControl.exe''),'
 if (-not $packageScript.Contains($inventoryLauncher)) {
     if (-not $packageScript.Contains($inventoryDll)) {
         throw 'Could not find the package binary inventory list'
@@ -421,7 +477,13 @@ Write-Host 'OpenGL launcher added to required package files, readme, and binary 
 
 
 # Keep the experimental package documentation aligned with the included WGL hook.
-$openGlTestMarker = 'VULKAN TEST (does not write to the Windows Registry)'
+$openGlTestMarker = 'CONTROL PANEL (normal use)
+1. Start MangoHudControl.exe from the Start menu or installation folder.
+2. The default process is Firestorm-Releasex64.exe. Change it to another .exe name when needed.
+3. Minimize to the notification area to keep the overlay active without leaving the panel on screen.
+4. Double-click the tray icon to reopen the panel. Right-click it and choose Close MangoHud to stop the overlay and exit.
+
+VULKAN TEST (does not write to the Windows Registry)'
 $openGlTestSection = @'
 OPENGL TEST (x64 test applications only; use a disposable application)
 1. Open PowerShell in the package folder.
@@ -455,7 +517,7 @@ if ($packageScript.Contains($oldOpenGlMeta)) {
 }
 
 [System.IO.File]::WriteAllText($packageScriptPath, $packageScript, [System.Text.UTF8Encoding]::new($false))
-Write-Host 'OpenGL test instructions and build metadata updated.'
+Write-Host 'OpenGL hook, tray controller, and package metadata updated.'
 
 # MANGOHUD_CONFIG is an inline option string, not a filename. Vulkan's test
 # launcher uses MANGOHUD_CONFIGFILE for the installed config file; unset the
