@@ -6,6 +6,7 @@ on:
     branches:
       - windows-opengl-wgl
       - windows-opengl-wgl-package-fix
+      - fix/opengl-control-attach-running-process
   pull_request:
     branches:
       - main
