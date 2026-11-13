@@ -459,14 +459,20 @@ if (-not $packageScript.Contains($copyControl)) {
     $packageScript = $packageScript.Insert($inventoryIndex, $copyControl + $nl + $nl)
 }
 
-$readmeControl = '- MangoHudControl.exe: dark control window, process-specific target, minimize-to-tray, Stop, and Exit.'
-if (-not $packageScript.Contains($readmeControl)) {
-    $readmePrefix = '- bin\MangoHudLauncher.exe:'
-    $readmeIndex = $packageScript.IndexOf($readmePrefix)
-    if ($readmeIndex -lt 0) { throw 'Package README launcher entry missing.' }
-    $readmeLineEnd = $packageScript.IndexOf($nl, $readmeIndex)
-    if ($readmeLineEnd -lt 0) { $readmeLineEnd = $packageScript.Length }
-    $packageScript = $packageScript.Insert($readmeLineEnd, $nl + $readmeControl)
+$readmeControl = @'
+CONTROL PANEL (normal use)
+1. Start MangoHudControl.exe from the Start menu or installation folder.
+2. The default process is Firestorm-Releasex64.exe. Change it to another .exe name when needed.
+3. Minimize to the notification area to keep the overlay active without leaving the panel on screen.
+4. Double-click the tray icon to reopen the panel. Right-click it and choose Close MangoHud to stop the overlay and exit.
+
+'@
+if (-not $packageScript.Contains('CONTROL PANEL (normal use)')) {
+    $readmeMarker = 'OPENGL TEST'
+    $readmeIndex = $packageScript.IndexOf($readmeMarker)
+    if ($readmeIndex -lt 0) { $readmeIndex = $packageScript.IndexOf('VULKAN TEST') }
+    if ($readmeIndex -lt 0) { throw 'Package README test-section marker missing.' }
+    $packageScript = $packageScript.Insert($readmeIndex, $readmeControl + $nl)
 }
 
 $inventoryDll = '    (Join-Path $packageRoot ''bin\MangoHud.dll''),'
