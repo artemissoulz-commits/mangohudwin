@@ -1,0 +1,1 @@
+Trigger a clean pull_request workflow with Ninja compiler output archived.
