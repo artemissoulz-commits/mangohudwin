@@ -173,7 +173,7 @@ BOOL WINAPI hookedSwapBuffers(HDC dc)
                 init_d3d_shared();
                 ImGui::StyleColorsDark();
                 HUDElements.convert_colors(false, params);
-                const bool platformReady = ImGui_ImplWin32_Init(hwnd);
+                const bool platformReady = ImGui_ImplWin32_InitForOpenGL(hwnd);
                 const bool rendererReady = platformReady && ImGui_ImplOpenGL3_Init("#version 130");
                 if (platformReady && rendererReady) {
                     RECT rect{};
