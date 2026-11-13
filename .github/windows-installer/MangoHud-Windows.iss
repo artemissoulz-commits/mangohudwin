@@ -42,11 +42,11 @@ AllowNoIcons=yes
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Files]
-Source: "{#RepoRoot}\source\LICENSE"; DestDir: "{app}"; DestName: "LICENSE"; Flags: ignoreversion
+Source: "{#RepoRoot}\source\LICENSE"; DestDir: "{app}"; DestName: "LICENSE"; Flags: ignoreversion uninsrestartdelete
 ; The experimental readme from the ZIP is replaced with the installer-specific
 ; instructions. Preserve any config file the user already edited on upgrades.
-Source: "{#PackageRoot}\*"; DestDir: "{app}"; Excludes: "README-EXPERIMENTAL.txt,config\MangoHud.conf"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#PackageRoot}\config\MangoHud.conf"; DestDir: "{app}\config"; Flags: onlyifdoesntexist
+Source: "{#PackageRoot}\*"; DestDir: "{app}"; Excludes: "README-EXPERIMENTAL.txt,config\MangoHud.conf"; Flags: ignoreversion recursesubdirs createallsubdirs uninsrestartdelete
+Source: "{#PackageRoot}\config\MangoHud.conf"; DestDir: "{app}\config"; Flags: onlyifdoesntexist uninsrestartdelete
 Source: "assets\MangoHud.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README-Windows.txt"; DestDir: "{app}"; Flags: ignoreversion
 
