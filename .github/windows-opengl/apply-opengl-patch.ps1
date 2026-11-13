@@ -705,10 +705,14 @@ if (-not $proxySource.Contains('MangoHudInitializeDXGIHooks')) {
         '#include <vector>',
         '#include <vector>' + $nl + '#include <atomic>' + $nl + '#include <cwchar>' + $nl + '#include <cstdlib>' + $nl + '#include <cstring>'
     )
-    $proxySource = $proxySource.Replace(
-        'static bool s_disableHooksForHost = false;',
-        'static bool s_disableHooksForHost = false;' + $nl + 'static std::atomic<bool> s_hooksReady{ false };'
-    )
+    $globalAnchor = '#include "../blacklist.h"'
+    if (-not $proxySource.Contains($globalAnchor)) { throw 'DXGI proxy global declaration anchor missing.' }
+    if (-not $proxySource.Contains('static std::atomic<bool> s_hooksReady')) {
+        $proxySource = $proxySource.Replace(
+            $globalAnchor,
+            $globalAnchor + $nl + 'static std::atomic<bool> s_hooksReady{ false };'
+        )
+    }
 
     $threadPattern = '(?s)static DWORD WINAPI initOverlayThread\(LPVOID\) \{.*?\r?\n\}\r?\n\r?\nstatic void initOverlayHooks\(\)'
     $threadReplacement = @'
@@ -786,7 +790,7 @@ static void initOverlayHooks()
     $exportAnchor = 'template<typename T>'
     $exportCode = @'
 extern "C" __declspec(dllexport) BOOL WINAPI MangoHudInitializeDXGIHooks() {
-    if (s_disableHooksForHost || s_initFailed)
+    if (s_initFailed)
         return FALSE;
 
     if (s_hooksReady.load()) {
@@ -794,8 +798,10 @@ extern "C" __declspec(dllexport) BOOL WINAPI MangoHudInitializeDXGIHooks() {
         return TRUE;
     }
 
+    // initOverlayHooks() owns the existing proxy guards and starts the worker.
+    // The worker will signal the PID-scoped ready event once Kiero is installed.
     initOverlayHooks();
-    return s_hooksInited && !s_initFailed;
+    return TRUE;
 }
 
 '@
