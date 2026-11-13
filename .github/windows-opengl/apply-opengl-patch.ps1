@@ -444,7 +444,7 @@ if (-not $packageScript.Contains($requiredControl)) {
 }
 
 $copyControl = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudControl.exe'') -Destination (Join-Path $packageRoot ''MangoHudControl.exe'')'
-if (-not $packageScript.Contains('MangoHudControl.exe')) {
+if (-not $packageScript.Contains($copyControl)) {
     $launcherCopyMatch = [regex]::Match($packageScript, '(?m)^Copy-Item[^\r\n]*MangoHudLauncher\.exe[^\r\n]*
 
 $readmeLauncher = '- bin\MangoHudLauncher.exe: starts an executable suspended, injects MangoHud.dll, then resumes it for OpenGL testing.'
