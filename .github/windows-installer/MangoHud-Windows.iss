@@ -1,6 +1,7 @@
 #define RepoRoot AddBackslash(SourcePath) + "..\.."
 #define PackageRoot RepoRoot + "\source\package"
 #define OutputDirectory RepoRoot + "\installer-output"
+#define AssetDirectory AddBackslash(SourcePath) + "assets"
 
 [Setup]
 AppId={{A867D12A-4C79-4F7A-8B49-4B7E889C03B4}
@@ -20,8 +21,12 @@ MinVersion=10.0.19041
 OutputDir={#OutputDirectory}
 OutputBaseFilename=MangoHud-Windows-Setup-x64
 SetupLogging=yes
+SetupIconFile={#AssetDirectory}\MangoHud.ico
+WizardImageFile={#AssetDirectory}\WizardImage.bmp
+WizardSmallImageFile={#AssetDirectory}\WizardSmallImage.bmp
+LicenseFile={#RepoRoot}\source\LICENSE
 UninstallDisplayName=MangoHud para Windows (experimental)
-UninstallDisplayIcon={app}\MangoHudControl.exe
+UninstallDisplayIcon={app}\MangoHud.ico
 VersionInfoCompany=MangoHud Windows Port
 VersionInfoDescription=Instalador experimental x64 de MangoHud para Windows
 VersionInfoProductName=MangoHud para Windows
@@ -47,7 +52,7 @@ Source: "{#PackageRoot}\config\MangoHud.conf"; DestDir: "{app}\config"; Flags: o
 Source: "README-Windows.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\MangoHud Control"; Filename: "{app}\MangoHudControl.exe"
+Name: "{group}\MangoHud Control"; Filename: "{app}\MangoHudControl.exe"; IconFilename: "{app}\MangoHud.ico"
 Name: "{group}\README - Windows Port"; Filename: "{app}\README-Windows.txt"
 Name: "{group}\Open install folder"; Filename: "{sys}\explorer.exe"; Parameters: """{app}"""
 Name: "{group}\Open configuration folder"; Filename: "{sys}\explorer.exe"; Parameters: """{app}\config"""
