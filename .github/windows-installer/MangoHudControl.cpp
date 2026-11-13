@@ -1091,9 +1091,44 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }
+
+int request_shutdown_for_uninstall() {
+    HWND window = FindWindowW(kClass, nullptr);
+    if (!window) return 0; // Control is already closed.
+
+    DWORD pid = 0;
+    const DWORD threadId = GetWindowThreadProcessId(window, &pid);
+    if (!pid || !threadId) return 0;
+
+    HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);
+    if (!process) {
+        // It may have exited between FindWindow and OpenProcess.
+        return GetLastError() == ERROR_INVALID_PARAMETER ? 0 : 2;
+    }
+
+    DWORD_PTR messageResult = 0;
+    SendMessageTimeoutW(window, kExitMessage, 0, 0,
+        SMTO_ABORTIFHUNG | SMTO_BLOCK, 5000, &messageResult);
+
+    DWORD wait = WaitForSingleObject(process, 10000);
+    if (wait != WAIT_OBJECT_0) {
+        // Compatibility fallback for older Control builds that treated
+        // WM_CLOSE as "minimize to tray" and did not know kExitMessage.
+        PostThreadMessageW(threadId, WM_QUIT, 0, 0);
+        wait = WaitForSingleObject(process, 10000);
+    }
+
+    CloseHandle(process);
+    return wait == WAIT_OBJECT_0 ? 0 : 3;
+}
 } // namespace
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
+    if (commandLine &&
+        (lstrcmpiW(commandLine, L"/shutdown") == 0 ||
+         lstrcmpiW(commandLine, L"--shutdown") == 0)) {
+        return request_shutdown_for_uninstall();
+    }
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\MangoHudControlMutex");
