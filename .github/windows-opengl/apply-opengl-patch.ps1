@@ -475,10 +475,12 @@ if (-not $packageScript.Contains($requiredControl)) {
     $packageScript = $packageScript.Replace($requiredLauncher, $requiredLauncher + $nl + $requiredControl)
 }
 
+$copyLauncherDirectory = 'New-Item -ItemType Directory -Path (Join-Path $packageRoot ''bin'') -Force | Out-Null'
+$copyLauncher = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudLauncher.exe'') -Destination (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')'
 $copyControl = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudControl.exe'') -Destination (Join-Path $packageRoot ''MangoHudControl.exe'')'
 $copyIcon = 'Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE ''.github\windows-installer\assets\MangoHud.ico'') -Destination (Join-Path $packageRoot ''MangoHud.ico'')'
-$copyCommands = $copyControl + $nl + $copyIcon
-if (-not $packageScript.Contains($copyControl) -or -not $packageScript.Contains($copyIcon)) {
+$copyCommands = $copyLauncherDirectory + $nl + $copyLauncher + $nl + $copyControl + $nl + $copyIcon
+if (-not $packageScript.Contains($copyLauncher) -or -not $packageScript.Contains($copyControl) -or -not $packageScript.Contains($copyIcon)) {
     $inventoryMarker = '$binaryPaths = @('
     $inventoryIndex = $packageScript.IndexOf($inventoryMarker)
     if ($inventoryIndex -lt 0) { throw 'Package binary inventory section missing.' }
