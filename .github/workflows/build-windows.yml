@@ -459,6 +459,33 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'source\LICENSE'))) {
             throw 'No se encuentra la licencia de MangoHud en el paquete de fuentes'
           }
+          $controlSourcePath = Join-Path $env:GITHUB_WORKSPACE '.github\\windows-installer\\MangoHudControl.cpp'
+          $controlSource = [System.IO.File]::ReadAllText($controlSourcePath)
+          foreach ($required in @(
+            'case kExitMessage:',
+            'lstrcmpiW(commandLine, L"/shutdown")',
+            'SendMessageTimeoutW(window, kExitMessage',
+            'SendMessageTimeoutW(window, WM_COMMAND',
+            'PostThreadMessageW(threadId, WM_QUIT, 0, 0);'
+          )) {
+            if (-not $controlSource.Contains($required)) {
+              throw "Falta el cierre seguro de MangoHud Control: $required"
+            }
+          }
+
+          $installerScript = [System.IO.File]::ReadAllText($source)
+          foreach ($required in @(
+            'function InitializeUninstall(): Boolean;',
+            "Exec(ControlExe, '/shutdown'",
+            'uninsrestartdelete',
+            'Type: filesandordirs; Name: "{app}\\config"',
+            'Type: files; Name: "{app}\\skin.ini"'
+          )) {
+            if (-not $installerScript.Contains($required)) {
+              throw "Falta la limpieza de desinstalación: $required"
+            }
+          }
+
           choco install innosetup --no-progress --yes
           $isccCandidates = @(
             (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
