@@ -293,11 +293,10 @@ void refresh_apps() {
         }
     }
 
-    if (!g_targetPid && !g_apps.empty() && g_autoSwitch) {
-        const AppWindow* chosen = &g_apps.front();
-        for (const auto& app : g_apps) if (app.pid == foregroundPid) { chosen = &app; break; }
-        set_target(*chosen, g_autoSwitch);
-    }
+    if (!g_targetPid && !g_autoSwitch)
+        set_status(L"Selecciona una aplicación detectada");
+    else if (!g_targetPid && !g_apps.empty() && g_autoSwitch)
+        set_status(L"Activa una aplicación para iniciar el HUD");
 
     if (changed || previousTargetPid != g_targetPid ||
         (g_targetCombo && SendMessageW(g_targetCombo, CB_GETCOUNT, 0, 0) != static_cast<LRESULT>(g_apps.size())))
@@ -305,8 +304,6 @@ void refresh_apps() {
 
     if (g_apps.empty() && !g_targetPid)
         set_status(L"Esperando a que abras una aplicación compatible");
-    else if (!g_targetPid && !g_autoSwitch)
-        set_status(L"Selecciona una aplicación detectada");
 }
 
 void add_tray() {
