@@ -10,10 +10,10 @@ AppVerName=MangoHud for Windows (Experimental) 0.1.0
 AppPublisher=MangoHud Windows Port contributors
 AppPublisherURL=https://github.com/artemissoulz-commits/mangohudwin
 AppSupportURL=https://github.com/artemissoulz-commits/mangohudwin/issues
-DefaultDirName={autopf}\MangoHud
+DefaultDirName={localappdata}\Programs\MangoHud
 DefaultGroupName=MangoHud
 DisableProgramGroupPage=yes
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 MinVersion=10.0.19041
@@ -39,9 +39,10 @@ AllowNoIcons=yes
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
+Source: "{#RepoRoot}\\source\\LICENSE"; DestDir: "{app}"; DestName: "LICENSE"; Flags: ignoreversion
 ; The experimental readme from the ZIP is replaced with the installer-specific
 ; instructions. Preserve any config file the user already edited on upgrades.
-Source: "{#PackageRoot}\*"; DestDir: "{app}"; Excludes: "README-EXPERIMENTAL.txt;config\MangoHud.conf"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PackageRoot}\*"; DestDir: "{app}"; Excludes: "README-EXPERIMENTAL.txt,config\MangoHud.conf"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PackageRoot}\config\MangoHud.conf"; DestDir: "{app}\config"; Flags: onlyifdoesntexist
 Source: "README-Windows.txt"; DestDir: "{app}"; Flags: ignoreversion
 
