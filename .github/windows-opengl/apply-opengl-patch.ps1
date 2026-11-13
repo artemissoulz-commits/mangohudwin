@@ -288,6 +288,7 @@ $bootstrap = @'
 #include <string>
 #include <vector>
 #include <cwchar>
+#include <stdlib.h>
 #include "opengl_hook.h"
 
 namespace {
@@ -309,8 +310,12 @@ void load_installed_config(HMODULE module)
     directory.resize(slash); // installation root
 
     const std::wstring configPath = directory + L"\\config\\MangoHud.conf";
-    if (GetFileAttributesW(configPath.c_str()) != INVALID_FILE_ATTRIBUTES)
+    if (GetFileAttributesW(configPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        // MangoHud reads this value through getenv() in its CRT. _wputenv_s
+        // updates that CRT environment as well as the process environment.
+        _wputenv_s(L"MANGOHUD_CONFIGFILE", configPath.c_str());
         SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", configPath.c_str());
+    }
 }
 
 void signal_ready_events()
