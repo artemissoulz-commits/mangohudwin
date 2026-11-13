@@ -832,12 +832,8 @@ bool d3d_overlay_enabled() {
 # Respect the event on each Present without stopping the game's own rendering.
 $d3d11Path = Join-Path $root 'src/win/d3d11_hook.cpp'
 $d3d11Source = [System.IO.File]::ReadAllText($d3d11Path)
-$d3d11Path = Join-Path $root 'src/win/d3d11_hook.cpp'
-$d3d11Source = [System.IO.File]::ReadAllText($d3d11Path)
 if (-not $d3d11Source.Contains('if (!d3d_overlay_enabled())')) {
-    $d3d11Pattern = '(?m)^[ \t]*dx_version[ \t]*=[ \t]*kiero::RenderType::D3D11;[ \t]*
-Write-Host 'DXGI proxy now supports in-process initialization and per-PID Control activation.'
-
+    $d3d11Pattern = '(?m)^.*dx_version.*D3D11;.*$'
     $d3d11Replacement = '    dx_version = kiero::RenderType::D3D11;' + $nl +
         '    if (!d3d_overlay_enabled())' + $nl +
         '        return oPresent(pSwapChain, SyncInterval, Flags);'
@@ -850,9 +846,7 @@ Write-Host 'DXGI proxy now supports in-process initialization and per-PID Contro
 $d3d12Path = Join-Path $root 'src/win/d3d12_hook.cpp'
 $d3d12Source = [System.IO.File]::ReadAllText($d3d12Path)
 if (-not $d3d12Source.Contains('if (!d3d_overlay_enabled())')) {
-    $d3d12Pattern = '(?m)^[ \t]*dx_version[ \t]*=[ \t]*kiero::RenderType::D3D12;[ \t]*
-Write-Host 'DXGI proxy now supports in-process initialization and per-PID Control activation.'
-
+    $d3d12Pattern = '(?m)^.*dx_version.*D3D12;.*$'
     $d3d12Replacement = '    dx_version = kiero::RenderType::D3D12;' + $nl +
         '    if (!d3d_overlay_enabled())' + $nl +
         '        return oPresentD3D12(pSwapChain, SyncInterval, Flags);'
