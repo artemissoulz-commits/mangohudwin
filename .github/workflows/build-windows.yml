@@ -36,7 +36,8 @@ jobs:
           install: >-
             mingw-w64-ucrt-x86_64-glslang
 
-      - name: Add glslang to PATH
+      - name: # Build revision: OpenGL-WGL-02
+dd glslang to PATH
         shell: pwsh
         env:
           MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
