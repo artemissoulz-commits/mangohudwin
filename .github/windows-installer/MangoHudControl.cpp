@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cwctype>
 #include <iterator>
+#include <utility>
 
 namespace {
 constexpr wchar_t kClass[] = L"MangoHudControl";
@@ -57,7 +58,7 @@ std::wstring quote(const std::wstring& s) {
 
 std::wstring lower(std::wstring value) {
     std::transform(value.begin(), value.end(), value.begin(),
-        [](wchar_t c) { return static_cast<wchar_t>(towlower(c)); });
+        [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
     return value;
 }
 
