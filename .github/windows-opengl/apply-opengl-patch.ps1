@@ -456,3 +456,17 @@ if ($packageScript.Contains($oldOpenGlMeta)) {
 
 [System.IO.File]::WriteAllText($packageScriptPath, $packageScript, [System.Text.UTF8Encoding]::new($false))
 Write-Host 'OpenGL test instructions and build metadata updated.'
+
+# MANGOHUD_CONFIG is an inline option string, not a filename. Vulkan's test
+# launcher uses MANGOHUD_CONFIGFILE for the installed config file; unset the
+# inline variable for the child process so parse_overlay_config reads it.
+$vulkanTestPath = Join-Path $root 'dev/Run-Vulkan-Test.ps1'
+$vulkanTest = [System.IO.File]::ReadAllText($vulkanTestPath)
+$wrongConfigAssignment = '    $env:MANGOHUD_CONFIG = $configPath'
+$correctConfigAssignment = '    Remove-Item Env:MANGOHUD_CONFIG -ErrorAction SilentlyContinue'
+if ($vulkanTest.Contains($wrongConfigAssignment)) {
+    $vulkanTest = $vulkanTest.Replace($wrongConfigAssignment, $correctConfigAssignment)
+    [System.IO.File]::WriteAllText($vulkanTestPath, $vulkanTest, [System.Text.UTF8Encoding]::new($false))
+}
+Write-Host 'Vulkan test script now uses MANGOHUD_CONFIGFILE as a file path.'
+
