@@ -8,6 +8,30 @@ function Write-Utf8File([string]$RelativePath, [string]$Content) {
     [System.IO.File]::WriteAllText($full, $Content, [System.Text.UTF8Encoding]::new($false))
 }
 
+# Decode the committed, compressed artwork into real assets for the control app and installer.
+$brandingAssets = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\assets'
+New-Item -ItemType Directory -Path $brandingAssets -Force | Out-Null
+function Expand-GzipBase64Asset([string]$InputPath, [string]$OutputPath) {
+    if (-not (Test-Path -LiteralPath $InputPath)) { throw "Missing compressed installer asset: $InputPath" }
+    $encoded = [System.IO.File]::ReadAllText($InputPath).Trim()
+    $compressed = [Convert]::FromBase64String($encoded)
+    $inputStream = [System.IO.MemoryStream]::new($compressed)
+    $gzipStream = [System.IO.Compression.GZipStream]::new($inputStream, [System.IO.Compression.CompressionMode]::Decompress)
+    $outputStream = [System.IO.MemoryStream]::new()
+    try {
+        $gzipStream.CopyTo($outputStream)
+        [System.IO.File]::WriteAllBytes($OutputPath, $outputStream.ToArray())
+    } finally {
+        $gzipStream.Dispose()
+        $inputStream.Dispose()
+        $outputStream.Dispose()
+    }
+}
+Expand-GzipBase64Asset (Join-Path $brandingAssets 'MangoHud.ico.gz.b64') (Join-Path $brandingAssets 'MangoHud.ico')
+Expand-GzipBase64Asset (Join-Path $brandingAssets 'WizardImage.bmp.gz.b64') (Join-Path $brandingAssets 'WizardImage.bmp')
+Expand-GzipBase64Asset (Join-Path $brandingAssets 'WizardSmallImage.bmp.gz.b64') (Join-Path $brandingAssets 'WizardSmallImage.bmp')
+Write-Host 'MangoHud installer artwork decoded.'
+
 # Enable ImGui OpenGL3 and link the Windows OpenGL/GDI libraries.
 $rootPath = Join-Path $root 'meson.build'
 $rootMeson = [System.IO.File]::ReadAllText($rootPath).Replace("'opengl=disabled'", "'opengl=enabled'")
@@ -452,11 +476,13 @@ if (-not $packageScript.Contains($requiredControl)) {
 }
 
 $copyControl = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudControl.exe'') -Destination (Join-Path $packageRoot ''MangoHudControl.exe'')'
-if (-not $packageScript.Contains($copyControl)) {
+$copyIcon = 'Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE ''.github\windows-installer\assets\MangoHud.ico'') -Destination (Join-Path $packageRoot ''MangoHud.ico'')'
+$copyCommands = $copyControl + $nl + $copyIcon
+if (-not $packageScript.Contains($copyControl) -or -not $packageScript.Contains($copyIcon)) {
     $inventoryMarker = '$binaryPaths = @('
     $inventoryIndex = $packageScript.IndexOf($inventoryMarker)
     if ($inventoryIndex -lt 0) { throw 'Package binary inventory section missing.' }
-    $packageScript = $packageScript.Insert($inventoryIndex, $copyControl + $nl + $nl)
+    $packageScript = $packageScript.Insert($inventoryIndex, $copyCommands + $nl + $nl)
 }
 
 $readmeControl = @'
