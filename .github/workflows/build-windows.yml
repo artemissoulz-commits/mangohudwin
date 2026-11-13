@@ -309,7 +309,15 @@ jobs:
       - name: Compile Windows targets (MSVC)
         shell: pwsh
         working-directory: source
-        run: meson compile -C build-msvc --verbose
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & meson compile -C build-msvc --verbose 2>&1 | Tee-Object -FilePath build-msvc-compile.log
+          $buildExit = $LASTEXITCODE
+          if ($buildExit -ne 0) {
+            Write-Host "MSVC/Ninja compilation failed with exit code $buildExit"
+            Get-Content build-msvc-compile.log -Tail 180
+            exit $buildExit
+          }
 
       - name: Verify expected Windows binaries
         shell: pwsh
@@ -357,5 +365,6 @@ jobs:
           path: |
             source/build-msvc/meson-logs/meson-log.txt
             source/build-msvc/meson-logs/meson-log.json
+            source/build-msvc-compile.log
           if-no-files-found: warn
           retention-days: 14
