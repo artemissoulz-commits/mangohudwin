@@ -161,7 +161,7 @@ bool start_overlay() {
         set_status(L"Abre Firestorm u otra aplicación compatible");
         return false;
     }
-    if (g_overlay && g_targetPid && WaitForSingleObject(g_overlay, 0) == WAIT_TIMEOUT)
+    if (g_overlay)
         stop_overlay(false);
 
     const std::wstring exe = app_dir() + L"\\tools\\MangoHud.exe";
