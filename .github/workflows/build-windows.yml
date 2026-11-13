@@ -331,6 +331,7 @@ jobs:
         run: |
           $expected = @(
             'build-msvc/src/MangoHud.dll',
+            'build-msvc/src/MangoHudLauncher.exe',
             'build-msvc/src/dxgi.dll',
             'build-msvc/src/MangoHud.exe',
             'build-msvc/src/MangoHud.x86_64.json'
