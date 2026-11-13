@@ -873,7 +873,7 @@ static void set_installed_config_path() {
     if (!GetModuleHandleExW(
             GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
                 GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            reinterpret_cast<LPCWSTR>(reinterpret_cast<const void*>(&init_d3d_shared)),
+            reinterpret_cast<LPCWSTR>(&cfg_inited),
             &selfModule))
         return;
 
