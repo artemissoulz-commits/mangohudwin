@@ -12,6 +12,11 @@ defecto en la carpeta local de tu usuario:
 %LOCALAPPDATA%\Programs\MangoHud
 Para quitarlo, usa Configuracion de Windows > Aplicaciones > Aplicaciones
 instaladas.
+El desinstalador cierra MangoHud Control y desactiva el HUD antes de borrar los archivos.
+Si un juego sigue abierto y mantiene MangoHud.dll o el proxy DXGI cargados, el
+desinstalador no cierra el juego: Windows elimina esos binarios bloqueados al
+cerrar el juego o, si siguen ocupados, al reiniciar el equipo.
+
 
 PANEL DE CONTROL
 ----------------
