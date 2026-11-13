@@ -29,6 +29,8 @@ HWND g_main{}, g_enabledCheck{}, g_status{}, g_skinCombo{};
 HANDLE g_overlay{};
 HANDLE g_overlayEvent{};
 HANDLE g_dxgiOverlayEvent{};
+HANDLE g_skinReloadEvent{};
+DWORD g_skinReloadPid{};
 DWORD g_overlayPid{}, g_targetPid{}, g_lastAttemptPid{};
 ULONGLONG g_lastAttemptTick{};
 std::wstring g_targetExe, g_targetTitle;
@@ -137,6 +139,11 @@ void set_status(const std::wstring& message) {
 }
 
 void close_overlay_handles() {
+    if (g_skinReloadEvent) {
+        CloseHandle(g_skinReloadEvent);
+        g_skinReloadEvent = nullptr;
+        g_skinReloadPid = 0;
+    }
     if (g_overlayEvent) {
         ResetEvent(g_overlayEvent);
         CloseHandle(g_overlayEvent);
@@ -796,15 +803,22 @@ int load_skin_selection() {
 
 void request_skin_reload(DWORD pid) {
     if (!pid) return;
-    wchar_t eventName[96]{};
-    swprintf_s(eventName, L"Local\\MangoHudReloadConfig_%lu", pid);
-    HANDLE eventHandle = OpenEventW(EVENT_MODIFY_STATE, FALSE, eventName);
-    if (!eventHandle)
-        eventHandle = CreateEventW(nullptr, FALSE, FALSE, eventName);
-    if (eventHandle) {
-        SetEvent(eventHandle);
-        CloseHandle(eventHandle);
+    if (g_skinReloadEvent && g_skinReloadPid != pid) {
+        CloseHandle(g_skinReloadEvent);
+        g_skinReloadEvent = nullptr;
+        g_skinReloadPid = 0;
     }
+    if (!g_skinReloadEvent) {
+        wchar_t eventName[96]{};
+        swprintf_s(eventName, L"Local\\MangoHudReloadConfig_%lu", pid);
+        g_skinReloadEvent = OpenEventW(EVENT_MODIFY_STATE, FALSE, eventName);
+        if (!g_skinReloadEvent)
+            g_skinReloadEvent = CreateEventW(nullptr, FALSE, FALSE, eventName);
+        if (g_skinReloadEvent) g_skinReloadPid = pid;
+    }
+    // Keep our handle until the target has had time to open the event. This
+    // avoids losing the first theme change immediately after connection.
+    if (g_skinReloadEvent) SetEvent(g_skinReloadEvent);
 }
 
 bool apply_skin(int index) {
