@@ -981,17 +981,7 @@ if (-not $overlaySource.Contains('MangoHudAnimalCrossingBubbles')) {
     }
     $overlaySource = $overlaySource.Replace($spacingAnchor, $spacingReplacement.TrimEnd())
 
-    $loopAnchor = @'
-         HUDElements.place = 0;
-         for (auto& func : HUDElements.ordered_functions){
-            if(!real_params->enabled[OVERLAY_PARAM_ENABLED_horizontal] && func.name != "exec")
-               ImGui::TableNextRow();
-            func.run();
-            HUDElements.place += 1;
-            if(!HUDElements.ordered_functions.empty() && real_params->enabled[OVERLAY_PARAM_ENABLED_horizontal] && HUDElements.ordered_functions.size() != (size_t)HUDElements.place)
-               horizontal_separator(params);
-         }
-'@
+    $loopPattern = '(?s)HUDElements\\.place\\s*=\\s*0;\\s*for\\s*\\(auto&\\s*func\\s*:\\s*HUDElements\\.ordered_functions\\)\\s*\\{.*?horizontal_separator\\(params\\);\\s*\\}'
     $loopReplacement = @'
         // MangoHudAnimalCrossingBubbles: draw one independent rounded card per metric block.
         const bool mangoHudAnimalCrossingBubbles =
@@ -1012,7 +1002,6 @@ if (-not $overlaySource.Contains('MangoHudAnimalCrossingBubbles')) {
             func.run();
 
             if (bubbleTable && func.name != "exec") {
-                // Close the metric block and capture its complete vertical extent.
                 ImGui::TableNextRow();
                 const float bubbleBottom = bubbleTable->RowPosY1;
                 if (bubbleBottom - bubbleTop > 4.0f && bubbleTable->DrawSplitter) {
@@ -1025,11 +1014,11 @@ if (-not $overlaySource.Contains('MangoHudAnimalCrossingBubbles')) {
                     const ImVec2 cardMin(left + 3.0f, bubbleTop + 1.0f);
                     const ImVec2 cardMax(right - 3.0f, bubbleBottom - 1.0f);
                     static const ImU32 bubbleFills[] = {
-                        IM_COL32(248, 237, 211, 238), // warm cream
-                        IM_COL32(225, 239, 215, 238), // leaf green
-                        IM_COL32(221, 237, 243, 238), // sky blue
-                        IM_COL32(247, 224, 207, 238), // peach
-                        IM_COL32(235, 226, 244, 238)  // lavender
+                        IM_COL32(248, 237, 211, 238),
+                        IM_COL32(225, 239, 215, 238),
+                        IM_COL32(221, 237, 243, 238),
+                        IM_COL32(247, 224, 207, 238),
+                        IM_COL32(235, 226, 244, 238)
                     };
                     static const ImU32 bubbleAccents[] = {
                         IM_COL32(187, 148, 91, 255),
@@ -1043,11 +1032,11 @@ if (-not $overlaySource.Contains('MangoHudAnimalCrossingBubbles')) {
                         ImVec2(cardMin.x, cardMin.y + 1.5f),
                         ImVec2(cardMax.x, cardMax.y + 1.5f),
                         IM_COL32(72, 82, 60, 28), 10.0f);
-                    drawList->AddRectFilled(
-                        cardMin, cardMax, bubbleFills[bubbleIndex], 10.0f);
-                    drawList->AddRect(
-                        cardMin, cardMax, IM_COL32(255, 255, 255, 210),
-                        10.0f, ImDrawFlags_RoundCornersAll, 1.0f);
+                    drawList->AddRectFilled(cardMin, cardMax,
+                        bubbleFills[bubbleIndex], 10.0f);
+                    drawList->AddRect(cardMin, cardMax,
+                        IM_COL32(255, 255, 255, 210), 10.0f,
+                        ImDrawFlags_RoundCornersAll, 1.0f);
                     drawList->AddRectFilled(
                         ImVec2(left + 7.0f, cardMin.y + 5.0f),
                         ImVec2(left + 10.0f, cardMax.y - 5.0f),
@@ -1065,10 +1054,7 @@ if (-not $overlaySource.Contains('MangoHudAnimalCrossingBubbles')) {
                 horizontal_separator(params);
         }
 '@
-    if (-not $overlaySource.Contains($loopAnchor)) {
-        throw 'Animal Crossing metric-loop insertion point missing in overlay.cpp.'
-    }
-    $updatedOverlay = $overlaySource.Replace($loopAnchor, $loopReplacement.TrimEnd())
+    $updatedOverlay = [regex]::Replace($overlaySource, $loopPattern, $loopReplacement.TrimEnd(), 1)
     if ($updatedOverlay -eq $overlaySource) {
         throw 'Could not install Animal Crossing rounded-bubble metric layout.'
     }
