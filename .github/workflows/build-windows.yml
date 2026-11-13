@@ -8,6 +8,7 @@ on:
       - windows-opengl-wgl-package-fix
       - fix/opengl-control-attach-running-process
       - fix/control-auto-focus-ui-sharp-logo
+      - fix/control-d3d11-12-autoload-ui-polish
   pull_request:
     branches:
       - main
