@@ -36,7 +36,9 @@ NOTIFYICONDATAW g_nid{};
 bool g_tray{}, g_enabled{true};
 HFONT g_titleFont{}, g_font{}, g_smallFont{};
 HBRUSH g_bgBrush{};
+HBRUSH g_cardBrush{};
 HICON g_appIcon{};
+COLORREF g_statusColor = RGB(87, 105, 128);
 
 std::wstring app_dir() {
     std::vector<wchar_t> b(32768);
@@ -118,7 +120,20 @@ bool get_foreground_app(AppWindow& app) {
 }
 
 void set_status(const std::wstring& message) {
+    if (message.find(L"HUD conectado") != std::wstring::npos ||
+        message.find(L"HUD activo") != std::wstring::npos) {
+        g_statusColor = RGB(30, 145, 91);
+    } else if (message.find(L"error") != std::wstring::npos ||
+               message.find(L"No se pudo") != std::wstring::npos ||
+               message.find(L"Falta ") != std::wstring::npos ||
+               message.find(L"no confirmó") != std::wstring::npos ||
+               message.find(L"No se encuentra") != std::wstring::npos) {
+        g_statusColor = RGB(190, 72, 65);
+    } else {
+        g_statusColor = RGB(87, 105, 128);
+    }
     if (g_status) SetWindowTextW(g_status, message.c_str());
+    if (g_main) InvalidateRect(g_main, nullptr, FALSE);
 }
 
 void close_overlay_handles() {
@@ -692,7 +707,8 @@ void refresh_apps() {
     // A failed first injection must not leave the HUD permanently detached.
     // Retry the same foreground process every 4 seconds without reinjecting
     // while a live process handle and its PID control event are already held.
-    const bool disconnected = !g_overlay || !g_overlayEvent ||
+    const bool hasApiEvent = g_overlayEvent || g_dxgiOverlayEvent;
+    const bool disconnected = !g_overlay || !hasApiEvent ||
         WaitForSingleObject(g_overlay, 0) != WAIT_TIMEOUT;
     const bool retryWindowElapsed = g_lastAttemptPid != foreground.pid ||
         GetTickCount64() - g_lastAttemptTick >= 4000;
@@ -793,8 +809,8 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
     case WM_CTLCOLORSTATIC: {
         HDC dc = reinterpret_cast<HDC>(wParam);
         SetBkMode(dc, TRANSPARENT);
-        SetTextColor(dc, GetDlgCtrlID(reinterpret_cast<HWND>(lParam)) == ID_STATUS ?
-            RGB(205, 112, 26) : GetSysColor(COLOR_WINDOWTEXT));
+        const int controlId = GetDlgCtrlID(reinterpret_cast<HWND>(lParam));
+        SetTextColor(dc, controlId == ID_STATUS ? g_statusColor : RGB(40, 49, 61));
         return reinterpret_cast<LRESULT>(g_bgBrush);
     }
     case WM_ERASEBKGND: {
@@ -806,7 +822,35 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
     case WM_PAINT: {
         PAINTSTRUCT paint{};
         HDC dc = BeginPaint(window, &paint);
-        if (g_appIcon) DrawIconEx(dc, 18, 12, g_appIcon, 64, 64, 0, nullptr, DI_NORMAL);
+        RECT client{};
+        GetClientRect(window, &client);
+        FillRect(dc, &client, g_bgBrush);
+
+        HPEN dividerPen = CreatePen(PS_SOLID, 1, RGB(222, 227, 234));
+        HGDIOBJ oldPen = SelectObject(dc, dividerPen);
+        MoveToEx(dc, 24, 98, nullptr);
+        LineTo(dc, client.right - 24, 98);
+        SelectObject(dc, oldPen);
+        DeleteObject(dividerPen);
+
+        RECT card{24, 116, client.right - 24, 226};
+        HGDIOBJ oldBrush = SelectObject(dc, g_cardBrush);
+        HPEN cardPen = CreatePen(PS_SOLID, 1, RGB(229, 233, 239));
+        oldPen = SelectObject(dc, cardPen);
+        RoundRect(dc, card.left, card.top, card.right, card.bottom, 12, 12);
+        SelectObject(dc, oldPen);
+        SelectObject(dc, oldBrush);
+        DeleteObject(cardPen);
+
+        HBRUSH dotBrush = CreateSolidBrush(g_statusColor);
+        oldBrush = SelectObject(dc, dotBrush);
+        oldPen = SelectObject(dc, GetStockObject(NULL_PEN));
+        Ellipse(dc, 36, 164, 46, 174);
+        SelectObject(dc, oldPen);
+        SelectObject(dc, oldBrush);
+        DeleteObject(dotBrush);
+
+        if (g_appIcon) DrawIconEx(dc, 26, 18, g_appIcon, 64, 64, 0, nullptr, DI_NORMAL);
         EndPaint(window, &paint);
         return 0;
     }
@@ -842,6 +886,8 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
     HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\MangoHudControlMutex");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         HWND previous = FindWindowW(kClass, nullptr);
@@ -850,8 +896,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         return 0;
     }
 
-    g_bgBrush = CreateSolidBrush(GetSysColor(COLOR_WINDOW));
-    g_titleFont = CreateFontW(-27, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+    g_bgBrush = CreateSolidBrush(RGB(243, 245, 248));
+    g_cardBrush = CreateSolidBrush(RGB(255, 255, 255));
+    g_titleFont = CreateFontW(-29, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
         DEFAULT_PITCH, L"Segoe UI");
     g_font = CreateFontW(-16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
@@ -879,22 +926,29 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
 
     g_main = CreateWindowExW(WS_EX_APPWINDOW, kClass, L"MangoHud",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 460, 224,
+        CW_USEDEFAULT, CW_USEDEFAULT, 520, 360,
         nullptr, nullptr, instance, nullptr);
     if (!g_main) return 2;
 
     SendMessageW(g_main, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(g_appIcon));
     SendMessageW(g_main, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(g_appIcon));
 
-    make_child(L"STATIC", L"MangoHud", SS_LEFT, 100, 20, 330, 34, 0);
-    HWND subtitle = make_child(L"STATIC", L"Control automático", SS_LEFT, 102, 54, 330, 22, 0);
+    make_child(L"STATIC", L"MangoHud", SS_LEFT, 108, 26, 360, 38, 0);
+    HWND subtitle = make_child(L"STATIC", L"MONITOR DE RENDIMIENTO", SS_LEFT, 110, 64, 360, 20, 0);
     if (subtitle) SendMessageW(subtitle, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
-    g_status = make_child(L"STATIC", L"Esperando una aplicación compatible…", SS_LEFT, 25, 105, 410, 23, ID_STATUS);
-    HWND followHint = make_child(L"STATIC", L"El HUD sigue automáticamente la aplicación en primer plano.",
-        SS_LEFT, 25, 130, 410, 20, 0);
+
+    HWND statusCaption = make_child(L"STATIC", L"ESTADO DE CONEXIÓN", SS_LEFT, 54, 132, 410, 18, 0);
+    if (statusCaption) SendMessageW(statusCaption, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
+    g_status = make_child(L"STATIC", L"Esperando una aplicación compatible…", SS_LEFT, 54, 155, 410, 25, ID_STATUS);
+    if (g_status) SendMessageW(g_status, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
+    HWND followHint = make_child(L"STATIC", L"El HUD seguirá automáticamente la aplicación en primer plano.",
+        SS_LEFT, 54, 187, 410, 20, 0);
     if (followHint) SendMessageW(followHint, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
+
     g_enabledCheck = make_child(L"BUTTON", L"HUD activado",
-        BS_AUTOCHECKBOX | WS_TABSTOP, 25, 163, 410, 26, ID_ENABLED);
+        BS_AUTOCHECKBOX | WS_TABSTOP, 30, 248, 450, 30, ID_ENABLED);
+    HWND footer = make_child(L"STATIC", L"SEGUIMIENTO AUTOMÁTICO", SS_LEFT, 30, 286, 450, 18, 0);
+    if (footer) SendMessageW(footer, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
 
     
     if (g_titleFont) {
@@ -919,6 +973,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (g_font) DeleteObject(g_font);
     if (g_smallFont) DeleteObject(g_smallFont);
     if (g_bgBrush) DeleteObject(g_bgBrush);
+    if (g_cardBrush) DeleteObject(g_cardBrush);
     if (g_appIcon) DestroyIcon(g_appIcon);
     if (mutex) CloseHandle(mutex);
     return static_cast<int>(msg.wParam);
