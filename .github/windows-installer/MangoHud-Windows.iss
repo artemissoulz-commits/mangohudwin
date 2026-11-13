@@ -11,7 +11,7 @@ AppPublisher=MangoHud Windows Port contributors
 AppPublisherURL=https://github.com/artemissoulz-commits/mangohudwin
 AppSupportURL=https://github.com/artemissoulz-commits/mangohudwin/issues
 DefaultDirName={localappdata}\Programs\MangoHud
-DefaultGroupName=MangoHud
+DefaultGroupName=MangoHud para Windows
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64
@@ -21,7 +21,7 @@ OutputDir={#OutputDirectory}
 OutputBaseFilename=MangoHud-Windows-Setup-x64
 SetupLogging=yes
 UninstallDisplayName=MangoHud para Windows (experimental)
-UninstallDisplayIcon={app}\tools\MangoHud.exe
+UninstallDisplayIcon={app}\MangoHudControl.exe
 VersionInfoCompany=MangoHud Windows Port
 VersionInfoDescription=Instalador experimental x64 de MangoHud para Windows
 VersionInfoProductName=MangoHud para Windows
@@ -47,9 +47,13 @@ Source: "{#PackageRoot}\config\MangoHud.conf"; DestDir: "{app}\config"; Flags: o
 Source: "README-Windows.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
+Name: "{group}\MangoHud Control"; Filename: "{app}\MangoHudControl.exe"
 Name: "{group}\README - Windows Port"; Filename: "{app}\README-Windows.txt"
 Name: "{group}\Open install folder"; Filename: "{sys}\explorer.exe"; Parameters: """{app}"""
 Name: "{group}\Open configuration folder"; Filename: "{sys}\explorer.exe"; Parameters: """{app}\config"""
+
+[Run]
+Filename: "{app}\MangoHudControl.exe"; Description: "Iniciar MangoHud Control"; Flags: postinstall nowait skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\cache"
