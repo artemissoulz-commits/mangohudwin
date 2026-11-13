@@ -301,6 +301,23 @@ int wmain(int argc, wchar_t** argv)
         return 7;
     }
 
+    // Pass the installed configuration to this game only, then restore the
+    // launcher's environment immediately after CreateProcessW.
+    const std::filesystem::path configPath =
+        dllPath.parent_path().parent_path() / L"config" / L"MangoHud.conf";
+    const bool useInstalledConfig = std::filesystem::exists(configPath);
+    DWORD oldConfigLength = GetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", nullptr, 0);
+    std::vector<wchar_t> oldConfigBuffer(oldConfigLength ? oldConfigLength : 1);
+    const bool hadOldConfig = oldConfigLength > 0 &&
+        GetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", oldConfigBuffer.data(), oldConfigLength) > 0;
+    if (useInstalledConfig &&
+        !SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", configPath.c_str())) {
+        if (hadOld) SetEnvironmentVariableW(L"MANGOHUD_OPENGL_READY_EVENT", oldBuffer.data());
+        else SetEnvironmentVariableW(L"MANGOHUD_OPENGL_READY_EVENT", nullptr);
+        CloseHandle(readyEvent);
+        return 8;
+    }
+
     std::wstring commandLine = quote_argument(targetPath.wstring());
     for (int i = 2; i < argc; ++i) commandLine += L" " + quote_argument(argv[i]);
     std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
@@ -315,6 +332,10 @@ int wmain(int argc, wchar_t** argv)
 
     if (hadOld) SetEnvironmentVariableW(L"MANGOHUD_OPENGL_READY_EVENT", oldBuffer.data());
     else SetEnvironmentVariableW(L"MANGOHUD_OPENGL_READY_EVENT", nullptr);
+    if (useInstalledConfig) {
+        if (hadOldConfig) SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", oldConfigBuffer.data());
+        else SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", nullptr);
+    }
 
     if (!created) {
         CloseHandle(readyEvent);
