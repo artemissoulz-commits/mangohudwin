@@ -876,7 +876,7 @@ constexpr SkinChoice kSkins[] = {
     {L"Glass", L"Glass.conf"},
     // Community palettes adapted from Catppuccin for MangoHud (MIT).
     {L"Catppuccin Latte", L"Catppuccin-Latte.conf"},
-    {L"Catppuccin Frappé", L"Catppuccin-Frappé.conf"},
+    {L"Catppuccin Frappe", L"Catppuccin-Frappe.conf"},
     {L"Catppuccin Macchiato", L"Catppuccin-Macchiato.conf"},
     {L"Catppuccin Mocha", L"Catppuccin-Mocha.conf"}
 };
