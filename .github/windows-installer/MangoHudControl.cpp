@@ -1071,6 +1071,12 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
     case WM_SIZE:
         if (wParam == SIZE_MINIMIZED) hide_to_tray();
         return 0;
+    // Dedicated shutdown command used by the uninstaller. WM_CLOSE is intentionally
+    // reserved for minimizing to the tray during normal use.
+    case kExitMessage:
+        exit_application();
+        return 0;
+
     case kTrayMessage:
         if (lParam == WM_LBUTTONUP || lParam == WM_LBUTTONDBLCLK) show_panel();
         else if (lParam == WM_RBUTTONUP || lParam == WM_CONTEXTMENU) tray_menu();
