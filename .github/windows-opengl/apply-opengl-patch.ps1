@@ -857,6 +857,13 @@ bool d3d_overlay_enabled() {
 # Resolve the installed config relative to the DLL itself. This covers both
 # MangoHud.dll (OpenGL) and MangoHudDXGI.dll (D3D11/12) in the target process.
 $sharedSource = [System.IO.File]::ReadAllText($sharedSourcePath)
+foreach ($header in @('#include <cstdlib>', '#include <string>')) {
+    if (-not $sharedSource.Contains($header)) {
+        $includeAnchor = '#include <cwchar>'
+        if (-not $sharedSource.Contains($includeAnchor)) { throw 'd3d_shared.cpp include anchor missing.' }
+        $sharedSource = $sharedSource.Replace($includeAnchor, $includeAnchor + $nl + $header)
+    }
+}
 if (-not $sharedSource.Contains('set_installed_config_path')) {
     $configLoader = @'
 static void set_installed_config_path() {
