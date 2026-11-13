@@ -459,7 +459,7 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'source\LICENSE'))) {
             throw 'No se encuentra la licencia de MangoHud en el paquete de fuentes'
           }
-          $controlSourcePath = Join-Path $env:GITHUB_WORKSPACE '.github\\windows-installer\\MangoHudControl.cpp'
+          $controlSourcePath = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\MangoHudControl.cpp'
           $controlSource = [System.IO.File]::ReadAllText($controlSourcePath)
           foreach ($required in @(
             'case kExitMessage:',
@@ -478,8 +478,8 @@ jobs:
             'function InitializeUninstall(): Boolean;',
             "Exec(ControlExe, '/shutdown'",
             'uninsrestartdelete',
-            'Type: filesandordirs; Name: "{app}\\config"',
-            'Type: files; Name: "{app}\\skin.ini"'
+            'Type: filesandordirs; Name: "{app}\config"',
+            'Type: files; Name: "{app}\skin.ini"'
           )) {
             if (-not $installerScript.Contains($required)) {
               throw "Falta la limpieza de desinstalación: $required"
