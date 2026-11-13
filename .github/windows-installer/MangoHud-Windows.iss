@@ -47,8 +47,8 @@ Source: "{#RepoRoot}\source\LICENSE"; DestDir: "{app}"; DestName: "LICENSE"; Fla
 ; instructions. Preserve any config file the user already edited on upgrades.
 Source: "{#PackageRoot}\*"; DestDir: "{app}"; Excludes: "README-EXPERIMENTAL.txt,config\MangoHud.conf"; Flags: ignoreversion recursesubdirs createallsubdirs uninsrestartdelete
 Source: "{#PackageRoot}\config\MangoHud.conf"; DestDir: "{app}\config"; Flags: onlyifdoesntexist uninsrestartdelete
-Source: "assets\MangoHud.ico"; DestDir: "{app}"; Flags: ignoreversion
-Source: "README-Windows.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "assets\MangoHud.ico"; DestDir: "{app}"; Flags: ignoreversion uninsrestartdelete
+Source: "README-Windows.txt"; DestDir: "{app}"; Flags: ignoreversion uninsrestartdelete
 
 [Icons]
 Name: "{group}\MangoHud Control"; Filename: "{app}\MangoHudControl.exe"; IconFilename: "{app}\MangoHud.ico"
@@ -60,4 +60,39 @@ Name: "{group}\Open configuration folder"; Filename: "{sys}\explorer.exe"; Param
 Filename: "{app}\MangoHudControl.exe"; Description: "Iniciar MangoHud Control"; Flags: postinstall nowait skipifsilent
 
 [UninstallDelete]
+; Remove generated user state that is not tracked as an installed file.
 Type: filesandordirs; Name: "{app}\cache"
+Type: filesandordirs; Name: "{app}\config"
+Type: files; Name: "{app}\skin.ini"
+
+[Code]
+function InitializeUninstall(): Boolean;
+var
+  ControlExe: string;
+  ResultCode: Integer;
+begin
+  Result := True;
+  ControlExe := ExpandConstant('{app}\MangoHudControl.exe');
+
+  if not FileExists(ControlExe) then
+    Exit;
+
+  { Ask Control to reset the overlay signals and exit before files are removed.
+    The helper waits for the process; failure safely aborts uninstallation. }
+  if not Exec(ControlExe, '/shutdown', ExpandConstant('{app}'), SW_HIDE,
+      ewWaitUntilTerminated, ResultCode) then
+  begin
+    MsgBox('No se pudo iniciar la limpieza de MangoHud Control. Cierra MangoHud manualmente e inténtalo de nuevo.',
+      mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  if ResultCode <> 0 then
+  begin
+    MsgBox('MangoHud Control no se ha cerrado correctamente (código ' +
+      IntToStr(ResultCode) + '). No se desinstalará para evitar dejar el HUD activo. Cierra el programa e inténtalo de nuevo.',
+      mbError, MB_OK);
+    Result := False;
+  end;
+end;
