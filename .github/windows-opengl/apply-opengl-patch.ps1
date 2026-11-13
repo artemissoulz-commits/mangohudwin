@@ -763,7 +763,19 @@ static void initOverlayHooks()
     if ($updatedProxy -eq $proxySource) { throw 'Could not replace DXGI proxy initialization thread.' }
     $proxySource = $updatedProxy
 
-    $threadCreatePattern = '(?m)^\s*CreateThread\(\s*NULL,\s*0,\s*initOverlayThread,\s*NULL,\s*0,\s*NULL\s*\);\s*
+    $threadCreatePattern = '(?m)^[ \t]*CreateThread[ \t]*\([ \t]*NULL,[ \t]*0,[ \t]*initOverlayThread,[ \t]*NULL,[ \t]*0,[ \t]*NULL[ \t]*\);[ \t]*$'
+    $threadCreateNew = @'
+    HANDLE thread = CreateThread(NULL, 0, initOverlayThread, NULL, 0, NULL);
+    if (thread) {
+        CloseHandle(thread);
+    } else {
+        s_initFailed = true;
+        s_hooksInited = false;
+    }
+'@
+    $threadCreateUpdated = [regex]::Replace($proxySource, $threadCreatePattern, $threadCreateNew.TrimEnd(), 1)
+    if ($threadCreateUpdated -eq $proxySource) { throw 'DXGI init thread creation anchor missing.' }
+    $proxySource = $threadCreateUpdated
 
     $exportAnchor = 'template<typename T>'
     $exportCode = @'
@@ -798,18 +810,31 @@ $sharedSource = [System.IO.File]::ReadAllText($sharedSourcePath)
 if (-not $sharedSource.Contains('bool d3d_overlay_enabled()')) {
     $sharedSource = $sharedSource.Replace(
         '#include "d3d_shared.h"',
-        '#include <windows.h>' + $nl + '#include <cwchar>' + $nl + '#include "d3d_shared.h"'
+        '#include <windows.h>' + $nl + '#include <cwchar>' + $nl + '#include <atomic>' + $nl + '#include "d3d_shared.h"'
     )
     $sharedSource += @'
 
 bool d3d_overlay_enabled() {
-    // A missing event means the classic drop-in DXGI proxy path is in use.
-    static HANDLE enabledEvent = []() -> HANDLE {
+    // If Control is attached after the proxy loads, retry opening its event.
+    static std::atomic<HANDLE> enabledEvent{ nullptr };
+    static LONG retryCounter = 0;
+    HANDLE eventHandle = enabledEvent.load();
+    if (!eventHandle && (InterlockedIncrement(&retryCounter) % 60 == 1)) {
         wchar_t eventName[96] = {};
         swprintf_s(eventName, L"Local\\MangoHudDXGIEnabled_%lu", GetCurrentProcessId());
-        return OpenEventW(SYNCHRONIZE, FALSE, eventName);
-    }();
-    return !enabledEvent || WaitForSingleObject(enabledEvent, 0) == WAIT_OBJECT_0;
+        HANDLE candidate = OpenEventW(SYNCHRONIZE, FALSE, eventName);
+        if (candidate) {
+            HANDLE expected = nullptr;
+            if (enabledEvent.compare_exchange_strong(expected, candidate))
+                eventHandle = candidate;
+            else {
+                CloseHandle(candidate);
+                eventHandle = expected;
+            }
+        }
+    }
+    // No event means classic drop-in mode: keep rendering enabled.
+    return !eventHandle || WaitForSingleObject(eventHandle, 0) == WAIT_OBJECT_0;
 }
 '@
     [System.IO.File]::WriteAllText($sharedSourcePath, $sharedSource, [System.Text.UTF8Encoding]::new($false))
