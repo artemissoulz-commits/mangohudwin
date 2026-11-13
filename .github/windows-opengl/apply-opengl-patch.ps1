@@ -82,6 +82,9 @@ BOOL WINAPI hookedSwapBuffers(HDC dc)
     std::lock_guard<std::mutex> renderLock(renderMutex);
     if (wglGetCurrentContext()) {
         dx_version = kiero::RenderType::OpenGL;
+        // The overlay API label reads sw_stats.engine, not dx_version.
+        sw_stats.engine = EngineTypes::OPENGL;
+        sw_stats.engineName = "OpenGL";
         if (!imguiReady) {
             HWND hwnd = WindowFromDC(dc);
             if (hwnd) {
