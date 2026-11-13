@@ -28,6 +28,7 @@ struct AppWindow {
 HWND g_main{}, g_enabledCheck{}, g_status{};
 HANDLE g_overlay{};
 HANDLE g_overlayEvent{};
+HANDLE g_dxgiOverlayEvent{};
 DWORD g_overlayPid{}, g_targetPid{}, g_lastAttemptPid{};
 ULONGLONG g_lastAttemptTick{};
 std::wstring g_targetExe, g_targetTitle;
@@ -126,6 +127,11 @@ void close_overlay_handles() {
         CloseHandle(g_overlayEvent);
         g_overlayEvent = nullptr;
     }
+    if (g_dxgiOverlayEvent) {
+        ResetEvent(g_dxgiOverlayEvent);
+        CloseHandle(g_dxgiOverlayEvent);
+        g_dxgiOverlayEvent = nullptr;
+    }
     if (g_overlay) {
         CloseHandle(g_overlay);
         g_overlay = nullptr;
@@ -142,6 +148,7 @@ void stop_overlay(bool announce = true) {
 
 void pause_overlay() {
     if (g_overlayEvent) ResetEvent(g_overlayEvent);
+    if (g_dxgiOverlayEvent) ResetEvent(g_dxgiOverlayEvent);
     if (g_enabled) set_status(L"HUD pausado");
 }
 
@@ -192,6 +199,27 @@ bool process_has_mangohud_module(DWORD pid, bool& querySucceeded) {
         querySucceeded = true;
         do {
             if (_wcsicmp(module.szModule, L"MangoHud.dll") == 0) {
+                found = true;
+                break;
+            }
+        } while (Module32NextW(snapshot, &module));
+    }
+    CloseHandle(snapshot);
+    return found;
+}
+
+bool process_has_module(DWORD pid, const std::wstring& moduleName, bool& querySucceeded) {
+    querySucceeded = false;
+    HANDLE snapshot = create_module_snapshot(pid);
+    if (snapshot == INVALID_HANDLE_VALUE) return false;
+
+    MODULEENTRY32W module{};
+    module.dwSize = sizeof(module);
+    bool found = false;
+    if (Module32FirstW(snapshot, &module)) {
+        querySucceeded = true;
+        do {
+            if (_wcsicmp(module.szModule, moduleName.c_str()) == 0) {
                 found = true;
                 break;
             }
@@ -292,6 +320,98 @@ bool inject_mangohud_dll(HANDLE process, DWORD pid,
     return loaded;
 }
 
+bool load_remote_library(HANDLE process, DWORD pid,
+                         const std::wstring& libraryPath, DWORD& errorCode) {
+    LPTHREAD_START_ROUTINE remoteLoadLibrary = nullptr;
+    if (!get_remote_load_library(pid, remoteLoadLibrary)) {
+        errorCode = GetLastError();
+        if (!errorCode) errorCode = ERROR_MOD_NOT_FOUND;
+        return false;
+    }
+
+    const SIZE_T bytes = (libraryPath.size() + 1) * sizeof(wchar_t);
+    void* remotePath = VirtualAllocEx(process, nullptr, bytes,
+        MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!remotePath) {
+        errorCode = GetLastError();
+        return false;
+    }
+
+    SIZE_T written = 0;
+    if (!WriteProcessMemory(process, remotePath, libraryPath.c_str(), bytes, &written) ||
+        written != bytes) {
+        errorCode = GetLastError();
+        VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+        return false;
+    }
+
+    HANDLE remoteThread = CreateRemoteThread(process, nullptr, 0,
+        remoteLoadLibrary, remotePath, 0, nullptr);
+    if (!remoteThread) {
+        errorCode = GetLastError();
+        VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+        return false;
+    }
+
+    const DWORD waitResult = WaitForSingleObject(remoteThread, 15000);
+    DWORD moduleHandle = 0;
+    const bool loaded = waitResult == WAIT_OBJECT_0 &&
+        GetExitCodeThread(remoteThread, &moduleHandle) && moduleHandle != 0;
+    if (!loaded)
+        errorCode = waitResult == WAIT_TIMEOUT ? WAIT_TIMEOUT : ERROR_DLL_INIT_FAILED;
+
+    CloseHandle(remoteThread);
+    VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+    return loaded;
+}
+
+bool call_remote_export(HANDLE process, DWORD pid, const std::wstring& libraryPath,
+                        const char* exportName, DWORD& errorCode) {
+    HMODULE localModule = LoadLibraryW(libraryPath.c_str());
+    if (!localModule) {
+        errorCode = GetLastError();
+        return false;
+    }
+
+    FARPROC localExport = GetProcAddress(localModule, exportName);
+    if (!localExport) {
+        errorCode = GetLastError();
+        FreeLibrary(localModule);
+        return false;
+    }
+
+    uintptr_t remoteBase = 0;
+    const std::wstring moduleName = basename(libraryPath);
+    if (!find_remote_module(pid, moduleName, remoteBase)) {
+        errorCode = GetLastError();
+        FreeLibrary(localModule);
+        return false;
+    }
+
+    const uintptr_t rva = reinterpret_cast<uintptr_t>(localExport) -
+        reinterpret_cast<uintptr_t>(localModule);
+    auto remoteStart = reinterpret_cast<LPTHREAD_START_ROUTINE>(remoteBase + rva);
+
+    HANDLE remoteThread = CreateRemoteThread(process, nullptr, 0,
+        remoteStart, nullptr, 0, nullptr);
+    if (!remoteThread) {
+        errorCode = GetLastError();
+        FreeLibrary(localModule);
+        return false;
+    }
+
+    const DWORD waitResult = WaitForSingleObject(remoteThread, 8000);
+    DWORD returnValue = 0;
+    const bool invoked = waitResult == WAIT_OBJECT_0 &&
+        GetExitCodeThread(remoteThread, &returnValue) && returnValue != 0;
+    if (!invoked)
+        errorCode = waitResult == WAIT_TIMEOUT ? WAIT_TIMEOUT : ERROR_DLL_INIT_FAILED;
+
+    CloseHandle(remoteThread);
+    FreeLibrary(localModule);
+    return invoked;
+}
+
 bool start_overlay() {
     if (!g_enabled) return false;
     if (!g_targetPid || g_targetExe.empty()) {
@@ -328,7 +448,7 @@ bool start_overlay() {
 
     if (!is_x64_process(process)) {
         CloseHandle(process);
-        set_status(L"OpenGL de MangoHud requiere que la aplicación sea x64.");
+        set_status(L"MangoHud requiere que la aplicación sea x64.");
         return false;
     }
 
@@ -416,7 +536,7 @@ bool start_overlay() {
             ResetEvent(enabledEvent);
             CloseHandle(enabledEvent);
             CloseHandle(process);
-            set_status(L"La DLL se cargó, pero el hook OpenGL no confirmó su inicio "
+            set_status(L"La DLL se cargó, pero el hook gráfico no confirmó su inicio "
                 L"(error " + std::to_wstring(error) +
                 L"). Revisa la arquitectura x64 y el registro de MangoHud.");
             return false;
@@ -432,9 +552,109 @@ bool start_overlay() {
         ResetEvent(enabledEvent);
         CloseHandle(enabledEvent);
         CloseHandle(process);
-        set_status(L"MangoHud.dll está en el proceso, pero no confirmó el protocolo "
+        set_status(L"MangoHud.dll está en el proceso, pero no confirmó el protocolo de Control "
             L"de Control. Reinicia Firestorm antes de volver a probar.");
         return false;
+    }
+
+    HANDLE dxgiEnabledEvent = nullptr;
+    bool d3d11QuerySucceeded = false;
+    bool d3d12QuerySucceeded = false;
+    const bool hasD3D11 = process_has_module(g_targetPid, L"d3d11.dll", d3d11QuerySucceeded);
+    const bool hasD3D12 = process_has_module(g_targetPid, L"d3d12.dll", d3d12QuerySucceeded);
+    if (!d3d11QuerySucceeded || !d3d12QuerySucceeded) {
+        const DWORD error = GetLastError();
+        CloseHandle(readyEvent);
+        ResetEvent(enabledEvent);
+        CloseHandle(enabledEvent);
+        CloseHandle(process);
+        set_status(L"No se pudo comprobar si la aplicación usa Direct3D (error " +
+            std::to_wstring(error) + L").");
+        return false;
+    }
+
+    if (hasD3D11 || hasD3D12) {
+        const std::wstring dxgiPath = app_dir() + L"\\bin\\MangoHudDXGI.dll";
+        if (GetFileAttributesW(dxgiPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            CloseHandle(readyEvent);
+            ResetEvent(enabledEvent);
+            CloseHandle(enabledEvent);
+            CloseHandle(process);
+            set_status(L"Falta bin\\MangoHudDXGI.dll. Reinstala el paquete completo.");
+            return false;
+        }
+
+        wchar_t dxgiEnabledName[96]{};
+        wchar_t dxgiReadyName[96]{};
+        swprintf_s(dxgiEnabledName, L"Local\\MangoHudDXGIEnabled_%lu", g_targetPid);
+        swprintf_s(dxgiReadyName, L"Local\\MangoHudDXGIReady_%lu", g_targetPid);
+
+        dxgiEnabledEvent = CreateEventW(nullptr, TRUE, FALSE, dxgiEnabledName);
+        HANDLE dxgiReadyEvent = CreateEventW(nullptr, TRUE, FALSE, dxgiReadyName);
+        if (!dxgiEnabledEvent || !dxgiReadyEvent) {
+            const DWORD error = GetLastError();
+            if (dxgiEnabledEvent) CloseHandle(dxgiEnabledEvent);
+            if (dxgiReadyEvent) CloseHandle(dxgiReadyEvent);
+            CloseHandle(readyEvent);
+            ResetEvent(enabledEvent);
+            CloseHandle(enabledEvent);
+            CloseHandle(process);
+            set_status(L"No se pudo crear el canal Direct3D (error " +
+                std::to_wstring(error) + L").");
+            return false;
+        }
+        ResetEvent(dxgiEnabledEvent);
+        ResetEvent(dxgiReadyEvent);
+
+        bool dxgiProxyQuerySucceeded = false;
+        const bool proxyAlreadyLoaded =
+            process_has_module(g_targetPid, L"MangoHudDXGI.dll", dxgiProxyQuerySucceeded);
+        if (!dxgiProxyQuerySucceeded) {
+            const DWORD error = GetLastError();
+            CloseHandle(dxgiReadyEvent);
+            CloseHandle(dxgiEnabledEvent);
+            CloseHandle(readyEvent);
+            ResetEvent(enabledEvent);
+            CloseHandle(enabledEvent);
+            CloseHandle(process);
+            set_status(L"No se pudo consultar el hook Direct3D (error " +
+                std::to_wstring(error) + L").");
+            return false;
+        }
+
+        DWORD dxgiError = ERROR_SUCCESS;
+        if ((!proxyAlreadyLoaded && !load_remote_library(process, g_targetPid, dxgiPath, dxgiError)) ||
+            !call_remote_export(process, g_targetPid, dxgiPath,
+                                "MangoHudInitializeDXGIHooks", dxgiError)) {
+            CloseHandle(dxgiReadyEvent);
+            ResetEvent(dxgiEnabledEvent);
+            CloseHandle(dxgiEnabledEvent);
+            CloseHandle(readyEvent);
+            ResetEvent(enabledEvent);
+            CloseHandle(enabledEvent);
+            CloseHandle(process);
+            std::wstring message = L"No se pudo activar el hook Direct3D (error " +
+                std::to_wstring(dxgiError) + L").";
+            if (dxgiError == ERROR_ACCESS_DENIED)
+                message += L" Comprueba que Control y el juego tengan los mismos permisos.";
+            set_status(message);
+            return false;
+        }
+
+        const DWORD dxgiReady = WaitForSingleObject(dxgiReadyEvent, 15000);
+        CloseHandle(dxgiReadyEvent);
+        if (dxgiReady != WAIT_OBJECT_0) {
+            const DWORD error = dxgiReady == WAIT_TIMEOUT ? WAIT_TIMEOUT : GetLastError();
+            ResetEvent(dxgiEnabledEvent);
+            CloseHandle(dxgiEnabledEvent);
+            CloseHandle(readyEvent);
+            ResetEvent(enabledEvent);
+            CloseHandle(enabledEvent);
+            CloseHandle(process);
+            set_status(L"El proxy Direct3D se cargó, pero no confirmó la inicialización (error " +
+                std::to_wstring(error) + L").");
+            return false;
+        }
     }
 
     if (!SetEvent(enabledEvent)) {
@@ -447,10 +667,26 @@ bool start_overlay() {
         return false;
     }
 
+    if (dxgiEnabledEvent && !SetEvent(dxgiEnabledEvent)) {
+        const DWORD error = GetLastError();
+        ResetEvent(dxgiEnabledEvent);
+        CloseHandle(dxgiEnabledEvent);
+        ResetEvent(enabledEvent);
+        CloseHandle(enabledEvent);
+        CloseHandle(process);
+        set_status(L"No se pudo activar el HUD Direct3D (error " +
+            std::to_wstring(error) + L").");
+        return false;
+    }
+
     g_overlay = process;
     g_overlayEvent = enabledEvent;
+    g_dxgiOverlayEvent = dxgiEnabledEvent;
     g_overlayPid = g_targetPid;
-    set_status(L"HUD conectado · " + (g_targetTitle.empty() ? g_targetExe : g_targetTitle) +
+    const std::wstring apiLabel = hasD3D12 ? L"Direct3D 12" :
+        (hasD3D11 ? L"Direct3D 11" : L"OpenGL");
+    set_status(L"HUD conectado · " + apiLabel + L" · " +
+        (g_targetTitle.empty() ? g_targetExe : g_targetTitle) +
         L" (PID " + std::to_wstring(g_targetPid) + L")");
     return true;
 }
