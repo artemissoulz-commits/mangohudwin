@@ -171,17 +171,20 @@ BOOL WINAPI hookedSwapBuffers(HDC dc)
                 ImPlot::CreateContext();
                 ImGui::GetIO().IniFilename = nullptr;
                 init_d3d_shared();
+                // Match MangoHud's normal renderer: start from the configured HUD
+                // dimensions. render_imgui() updates this size after each frame.
+                const auto initialParams = get_params();
+                if (initialParams) {
+                    window_size = ImVec2(
+                        static_cast<float>(initialParams->width),
+                        static_cast<float>(initialParams->height));
+                }
                 ImGui::StyleColorsDark();
                 HUDElements.convert_colors(false, params);
                 const bool platformReady = ImGui_ImplWin32_InitForOpenGL(hwnd);
                 const bool rendererReady = platformReady && ImGui_ImplOpenGL3_Init("#version 130");
                 if (platformReady && rendererReady) {
-                    RECT rect{};
-                    GetClientRect(hwnd, &rect);
-                    window_size = ImVec2(
-                        static_cast<float>(rect.right - rect.left),
-                        static_cast<float>(rect.bottom - rect.top));
-                    ImGui::GetIO().DisplaySize = window_size;
+                    // ImGui_ImplWin32_NewFrame owns display-size and DPI metrics.
                     create_fonts(nullptr, params, sw_stats.font_small, sw_stats.font_text, sw_stats.font_secondary);
                     sw_stats.font_params_hash = params.font_params_hash;
                     imguiReady = true;
@@ -195,13 +198,9 @@ BOOL WINAPI hookedSwapBuffers(HDC dc)
             }
         }
         if (imguiReady) {
-            RECT rect{};
-            if (overlayWindow && GetClientRect(overlayWindow, &rect)) {
-                window_size = ImVec2(
-                    static_cast<float>(rect.right - rect.left),
-                    static_cast<float>(rect.bottom - rect.top));
-                ImGui::GetIO().DisplaySize = window_size;
-            }
+            // Do not overwrite window_size with the full viewer size here.
+            // render_imgui() keeps window_size equal to the HUD's content bounds.
+            // The Win32 backend updates ImGui::GetIO().DisplaySize in NewFrame().
             d3d_run();
             if (HUDElements.colors.update) HUDElements.convert_colors(params);
             ImGui_ImplOpenGL3_NewFrame();
