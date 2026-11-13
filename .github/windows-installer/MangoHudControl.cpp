@@ -71,7 +71,7 @@ bool start_overlay() {
         status(L"Escribe solo el nombre, por ejemplo Firestorm-Releasex64.exe"); return false;
     }
     stop_overlay();
-    std::wstring exe = app_dir() + L"\\MangoHud.exe";
+    std::wstring exe = app_dir() + L"\\tools\\MangoHud.exe";
     std::wstring cmd = quote(exe) + L" " + quote(target);
     std::vector<wchar_t> mutableCmd(cmd.begin(), cmd.end()); mutableCmd.push_back(0);
     STARTUPINFOW si{}; si.cb = sizeof(si); si.dwFlags = STARTF_USESHOWWINDOW; si.wShowWindow = SW_HIDE;
@@ -82,7 +82,7 @@ bool start_overlay() {
         status(msg); return false;
     }
     CloseHandle(pi.hThread); g_overlay = pi.hProcess; g_pid = pi.dwProcessId;
-    std::wstring msg = L"Buscando " + target + L"…"; status(msg.c_str()); return true;
+    std::wstring msg = L"Siguiendo únicamente " + target + L"…"; status(msg.c_str()); return true;
 }
 void add_tray() {
     if (g_tray) return;
@@ -185,11 +185,11 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show) {
     if(!g_main) return 2;
     const BOOL dark=TRUE; DwmSetWindowAttribute(g_main,20,&dark,sizeof(dark));
     child(L"STATIC",L"PROCESO OBJETIVO",0,28,124,200,22,0);
-    child(L"STATIC",L"El HUD solo seguirá este ejecutable, no el navegador.",0,28,149,410,20,0);
+    child(L"STATIC",L"El HUD sigue solo este proceso, no cambia al navegador.",0,28,149,410,20,0);
     g_edit=child(L"EDIT",L"Firestorm-Releasex64.exe",WS_BORDER|ES_AUTOHSCROLL,28,178,408,34,ID_PROCESS);
     child(L"BUTTON",L"Iniciar / reiniciar",BS_OWNERDRAW,28,235,188,42,ID_START);
     child(L"BUTTON",L"Detener",BS_OWNERDRAW,226,235,100,42,ID_STOP);
-    child(L"BUTTON",L"Minimizar a bandeja",BS_OWNERDRAW,28,288,298,36,ID_TRAY);
+    child(L"BUTTON",L"Minimizar a la bandeja",BS_OWNERDRAW,28,288,298,36,ID_TRAY);
     g_status=child(L"STATIC",L"Iniciando…",SS_LEFT,28,338,408,22,ID_STATUS);
     EnumChildWindows(g_main,[](HWND h,LPARAM)->BOOL{ SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(g_font),TRUE); return TRUE; },0);
     SetTimer(g_main,1,750,nullptr); start_overlay();
