@@ -19,6 +19,7 @@ NOTIFYICONDATAW g_nid{};
 bool g_tray{};
 HFONT g_titleFont{}, g_font{}, g_smallFont{};
 HBRUSH g_bgBrush{}, g_editBrush{};
+HICON g_appIcon{};
 
 std::wstring app_dir() {
     std::vector<wchar_t> b(32768);
@@ -107,7 +108,7 @@ void add_tray() {
     if (g_tray) return;
     g_nid = {}; g_nid.cbSize = sizeof(g_nid); g_nid.hWnd = g_main; g_nid.uID = 1;
     g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP; g_nid.uCallbackMessage = kTrayMessage;
-    g_nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    g_nid.hIcon = g_appIcon ? g_appIcon : LoadIconW(nullptr, IDI_APPLICATION);
     wcscpy_s(g_nid.szTip, L"MangoHud para Windows");
     g_tray = Shell_NotifyIconW(NIM_ADD, &g_nid) == TRUE;
 }
@@ -195,12 +196,15 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show) {
     g_titleFont=CreateFontW(-30,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
     g_font=CreateFontW(-16,0,0,0,FW_MEDIUM,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
     g_smallFont=CreateFontW(-13,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
+    const std::wstring iconPath = app_dir() + L"\\MangoHud.ico";
+    g_appIcon = static_cast<HICON>(LoadImageW(nullptr, iconPath.c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE));
     WNDCLASSEXW wc{}; wc.cbSize=sizeof(wc); wc.lpfnWndProc=wndproc; wc.hInstance=instance;
-    wc.hCursor=LoadCursorW(nullptr,IDC_ARROW); wc.hIcon=LoadIconW(nullptr,IDI_APPLICATION); wc.hbrBackground=g_bgBrush; wc.lpszClassName=kClass;
+    wc.hCursor=LoadCursorW(nullptr,IDC_ARROW); wc.hIcon=g_appIcon ? g_appIcon : LoadIconW(nullptr,IDI_APPLICATION); wc.hIconSm=wc.hIcon; wc.hbrBackground=g_bgBrush; wc.lpszClassName=kClass;
     if(!RegisterClassExW(&wc)) return 1;
     g_main=CreateWindowExW(WS_EX_APPWINDOW,kClass,L"MangoHud para Windows",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
         CW_USEDEFAULT,CW_USEDEFAULT,480,420,nullptr,nullptr,instance,nullptr);
     if(!g_main) return 2;
+    if (g_appIcon) { SendMessageW(g_main, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(g_appIcon)); SendMessageW(g_main, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(g_appIcon)); }
     const BOOL dark=TRUE; DwmSetWindowAttribute(g_main,20,&dark,sizeof(dark));
     child(L"STATIC",L"PROCESO OBJETIVO",0,28,124,200,22,0);
     child(L"STATIC",L"El HUD sigue solo este proceso, no cambia al navegador.",0,28,149,410,20,0);
@@ -214,6 +218,6 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show) {
     ShowWindow(g_main,show==SW_HIDE?SW_SHOWNORMAL:show); UpdateWindow(g_main);
     MSG msg{}; while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
     if(g_titleFont)DeleteObject(g_titleFont); if(g_font)DeleteObject(g_font); if(g_smallFont)DeleteObject(g_smallFont);
-    if(g_bgBrush)DeleteObject(g_bgBrush); if(g_editBrush)DeleteObject(g_editBrush); if(mutex)CloseHandle(mutex);
+    if(g_bgBrush)DeleteObject(g_bgBrush); if(g_editBrush)DeleteObject(g_editBrush); if(g_appIcon)DestroyIcon(g_appIcon); if(mutex)CloseHandle(mutex);
     return static_cast<int>(msg.wParam);
 }
