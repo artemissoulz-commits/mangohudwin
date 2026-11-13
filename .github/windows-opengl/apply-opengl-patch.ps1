@@ -349,3 +349,48 @@ Write-Utf8File 'src/win/opengl_hook.h' $header
 Write-Utf8File 'src/win/opengl_bootstrap.cpp' $bootstrap
 Write-Utf8File 'src/app/mangohud_launcher.cpp' $launcher
 Write-Host 'OpenGL WGL hook and launcher applied.'
+
+
+# Ensure the experimental package actually contains the launcher needed to inject
+# MangoHud.dll into a normal OpenGL executable.
+$packageScriptPath = Join-Path $root 'dev/package_windows.ps1'
+$packageScript = [System.IO.File]::ReadAllText($packageScriptPath)
+
+$requiredDll = '    (Join-Path $buildOut ''MangoHud.dll''),'
+$requiredLauncher = '    (Join-Path $buildOut ''MangoHudLauncher.exe''),'
+if (-not $packageScript.Contains($requiredLauncher)) {
+    if (-not $packageScript.Contains($requiredDll)) {
+        throw 'Could not find the required-binaries list in dev/package_windows.ps1'
+    }
+    $packageScript = $packageScript.Replace($requiredDll, $requiredDll + $nl + $requiredLauncher)
+}
+
+$copyDll = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHud.dll'') -Destination (Join-Path $packageRoot ''bin\MangoHud.dll'')'
+$copyLauncher = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudLauncher.exe'') -Destination (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')'
+if (-not $packageScript.Contains($copyLauncher)) {
+    if (-not $packageScript.Contains($copyDll)) {
+        throw 'Could not find the MangoHud.dll package-copy command'
+    }
+    $packageScript = $packageScript.Replace($copyDll, $copyDll + $nl + $copyLauncher)
+}
+
+$readmeDll = '- bin\MangoHud.dll: Vulkan layer DLL.'
+$readmeLauncher = '- bin\MangoHudLauncher.exe: starts an executable suspended, injects MangoHud.dll, then resumes it for OpenGL testing.'
+if (-not $packageScript.Contains($readmeLauncher)) {
+    if (-not $packageScript.Contains($readmeDll)) {
+        throw 'Could not find the package README binary list'
+    }
+    $packageScript = $packageScript.Replace($readmeDll, $readmeDll + $nl + $readmeLauncher)
+}
+
+$inventoryDll = '    (Join-Path $packageRoot ''bin\MangoHud.dll''),'
+$inventoryLauncher = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe''),'
+if (-not $packageScript.Contains($inventoryLauncher)) {
+    if (-not $packageScript.Contains($inventoryDll)) {
+        throw 'Could not find the package binary inventory list'
+    }
+    $packageScript = $packageScript.Replace($inventoryDll, $inventoryDll + $nl + $inventoryLauncher)
+}
+
+[System.IO.File]::WriteAllText($packageScriptPath, $packageScript, [System.Text.UTF8Encoding]::new($false))
+Write-Host 'OpenGL launcher added to required package files, readme, and binary inventory.'
