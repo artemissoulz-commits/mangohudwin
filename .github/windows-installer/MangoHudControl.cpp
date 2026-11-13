@@ -251,6 +251,91 @@ bool process_has_module(DWORD pid, const std::wstring& moduleName, bool& querySu
     return found;
 }
 
+
+bool process_has_supported_graphics_api(DWORD pid) {
+    HANDLE snapshot = create_module_snapshot(pid);
+    if (snapshot == INVALID_HANDLE_VALUE) return false;
+
+    MODULEENTRY32W module{};
+    module.dwSize = sizeof(module);
+    bool found = false;
+    if (Module32FirstW(snapshot, &module)) {
+        do {
+            if (_wcsicmp(module.szModule, L"d3d11.dll") == 0 ||
+                _wcsicmp(module.szModule, L"d3d12.dll") == 0 ||
+                _wcsicmp(module.szModule, L"opengl32.dll") == 0) {
+                found = true;
+                break;
+            }
+        } while (Module32NextW(snapshot, &module));
+    }
+    CloseHandle(snapshot);
+    return found;
+}
+
+struct RunningAppSearch {
+    AppWindow app{};
+};
+
+BOOL CALLBACK find_visible_graphics_app(HWND window, LPARAM parameter) {
+    auto* search = reinterpret_cast<RunningAppSearch*>(parameter);
+    if (!search || !IsWindowVisible(window) || GetWindow(window, GW_OWNER))
+        return TRUE;
+
+    const LONG_PTR extendedStyle = GetWindowLongPtrW(window, GWL_EXSTYLE);
+    if ((extendedStyle & WS_EX_TOOLWINDOW) != 0)
+        return TRUE;
+
+    DWORD pid = 0;
+    GetWindowThreadProcessId(window, &pid);
+    if (!pid || pid == GetCurrentProcessId())
+        return TRUE;
+
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!process)
+        return TRUE;
+
+    std::vector<wchar_t> image(32768);
+    DWORD length = static_cast<DWORD>(image.size());
+    const BOOL gotImage = QueryFullProcessImageNameW(process, 0, image.data(), &length);
+    if (!gotImage || !length) {
+        CloseHandle(process);
+        return TRUE;
+    }
+
+    const std::wstring exe = basename(std::wstring(image.data(), length));
+    const bool eligibleProcess = !ignored_process(exe) && is_x64_process(process);
+    CloseHandle(process);
+    if (!eligibleProcess || !process_has_supported_graphics_api(pid))
+        return TRUE;
+
+    wchar_t title[512]{};
+    GetWindowTextW(window, title, static_cast<int>(std::size(title)));
+    search->app.pid = pid;
+    search->app.exe = exe;
+    search->app.title = title;
+    // EnumWindows follows top-level z-order, so the first compatible window
+    // is the most recently active visible game/application behind Control.
+    return FALSE;
+}
+
+bool get_best_running_app(AppWindow& app) {
+    AppWindow foreground{};
+    if (get_foreground_app(foreground) &&
+        process_has_supported_graphics_api(foreground.pid)) {
+        app = std::move(foreground);
+        return true;
+    }
+
+    RunningAppSearch search{};
+    EnumWindows(find_visible_graphics_app, reinterpret_cast<LPARAM>(&search));
+    if (!search.app.pid)
+        return false;
+
+    app = std::move(search.app);
+    return true;
+}
+
 bool find_remote_module(DWORD pid, const std::wstring& moduleName, uintptr_t& base) {
     HANDLE snapshot = create_module_snapshot(pid);
     if (snapshot == INVALID_HANDLE_VALUE) return false;
@@ -704,7 +789,7 @@ void refresh_apps() {
     if (!g_enabled) return;
 
     AppWindow foreground{};
-    if (!get_foreground_app(foreground)) return;
+    if (!get_best_running_app(foreground)) return;
 
     if (foreground.pid != g_targetPid) {
         set_target(foreground);
@@ -826,8 +911,37 @@ bool apply_skin(int index) {
     const std::wstring root = app_dir();
     const std::wstring source = root + L"\\skins\\" + kSkins[index].file;
     const std::wstring destination = root + L"\\config\\MangoHud.conf";
-    if (!CopyFileW(source.c_str(), destination.c_str(), FALSE)) {
-        set_status(L"No se pudo aplicar la skin (error " + std::to_wstring(GetLastError()) + L").");
+    // Copy to a unique temporary file first, then replace the active config with
+    // a same-directory rename. The game can therefore read either the old or
+    // the new complete config, never a partially copied file.
+    static LONG temporarySequence = 0;
+    const std::wstring temporary = destination + L".tmp." +
+        std::to_wstring(GetCurrentProcessId()) + L"." +
+        std::to_wstring(GetTickCount64()) + L"." +
+        std::to_wstring(InterlockedIncrement(&temporarySequence));
+    if (!CopyFileW(source.c_str(), temporary.c_str(), TRUE)) {
+        const DWORD error = GetLastError();
+        DeleteFileW(temporary.c_str());
+        set_status(L"No se pudo preparar la skin (error " + std::to_wstring(error) + L").");
+        return false;
+    }
+
+    bool replaced = false;
+    DWORD replaceError = ERROR_SUCCESS;
+    for (int attempt = 0; attempt < 6; ++attempt) {
+        if (MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+            replaced = true;
+            break;
+        }
+        replaceError = GetLastError();
+        if (replaceError != ERROR_SHARING_VIOLATION &&
+            replaceError != ERROR_ACCESS_DENIED)
+            break;
+        Sleep(20);
+    }
+    if (!replaced) {
+        DeleteFileW(temporary.c_str());
+        set_status(L"No se pudo instalar la skin (error " + std::to_wstring(replaceError) + L").");
         return false;
     }
 
