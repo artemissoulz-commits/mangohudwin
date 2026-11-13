@@ -53,7 +53,7 @@ Source: "assets\MangoHud.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README-Windows.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\MangoHud Control"; Filename: "{app}\MangoHudControl.exe"; IconFilename: "{app}\MangoHud.ico"
+Name: "{group}\MangoHud Control"; Filename: "{app}\MangoHudControl.exe"; IconFilename: "{app}\MangoHud.ico"; IconFilename: "{app}\MangoHud.ico"
 Name: "{group}\README - Windows Port"; Filename: "{app}\README-Windows.txt"
 Name: "{group}\Open install folder"; Filename: "{sys}\explorer.exe"; Parameters: """{app}"""
 Name: "{group}\Open configuration folder"; Filename: "{sys}\explorer.exe"; Parameters: """{app}\config"""
