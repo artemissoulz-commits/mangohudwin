@@ -23,7 +23,9 @@ auxiliar: carga bin\MangoHud.dll dentro del proceso seleccionado y controla
 el HUD con un evento por PID.
 
 El seguimiento automatico es fijo: no hay lista ni selector manual de aplicaciones.
-Pausar o salir de Control oculta el HUD; no cierra ni termina Firestorm. Haz
+Para Direct3D 11/12 Control carga su proxy DXGI dentro del proceso activo; no copia ni reemplaza dxgi.dll en la carpeta del juego.
+Control activa OpenGL directamente y carga el proxy DXGI para aplicaciones Direct3D 11/12 ya abiertas.
+Pausar o salir de Control oculta el HUD; no cierra ni termina la aplicación. Haz
 doble clic en el icono de MangoHud para volver a abrir el panel; con clic
 derecho puedes cerrar MangoHud por completo.
 
