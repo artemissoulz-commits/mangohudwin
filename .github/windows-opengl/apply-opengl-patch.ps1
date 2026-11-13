@@ -578,6 +578,11 @@ $packageScriptPath = Join-Path $root 'dev/package_windows.ps1'
 $packageScript = [System.IO.File]::ReadAllText($packageScriptPath)
 
 $requiredDll = '    (Join-Path $buildOut ''MangoHud.dll''),'
+$requiredDxgi = '    (Join-Path $buildOut ''dxgi.dll''),'
+if (-not $packageScript.Contains($requiredDxgi)) {
+    if (-not $packageScript.Contains($requiredDll)) { throw 'MangoHud.dll required-binary entry missing for DXGI proxy packaging.' }
+    $packageScript = $packageScript.Replace($requiredDll, $requiredDll + $nl + $requiredDxgi)
+}
 $requiredLauncher = '    (Join-Path $buildOut ''MangoHudLauncher.exe''),'
 $requiredControl = '    (Join-Path $buildOut ''MangoHudControl.exe''),'
 if (-not $packageScript.Contains($requiredLauncher)) {
@@ -590,11 +595,12 @@ if (-not $packageScript.Contains($requiredControl)) {
 }
 
 $copyLauncherDirectory = 'New-Item -ItemType Directory -Path (Join-Path $packageRoot ''bin'') -Force | Out-Null'
+$copyDxgi = 'Copy-Item -LiteralPath (Join-Path $buildOut ''dxgi.dll'') -Destination (Join-Path $packageRoot ''bin\MangoHudDXGI.dll'')'
 $copyLauncher = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudLauncher.exe'') -Destination (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')'
 $copyControl = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudControl.exe'') -Destination (Join-Path $packageRoot ''MangoHudControl.exe'')'
 $copyIcon = 'Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE ''.github\windows-installer\assets\MangoHud.ico'') -Destination (Join-Path $packageRoot ''MangoHud.ico'')'
-$copyCommands = $copyLauncherDirectory + $nl + $copyLauncher + $nl + $copyControl + $nl + $copyIcon
-if (-not $packageScript.Contains($copyLauncher) -or -not $packageScript.Contains($copyControl) -or -not $packageScript.Contains($copyIcon)) {
+$copyCommands = $copyLauncherDirectory + $nl + $copyDxgi + $nl + $copyLauncher + $nl + $copyControl + $nl + $copyIcon
+if (-not $packageScript.Contains($copyDxgi) -or -not $packageScript.Contains($copyLauncher) -or -not $packageScript.Contains($copyControl) -or -not $packageScript.Contains($copyIcon)) {
     $inventoryMarker = '$binaryPaths = @('
     $inventoryIndex = $packageScript.IndexOf($inventoryMarker)
     if ($inventoryIndex -lt 0) { throw 'Package binary inventory section missing.' }
@@ -618,9 +624,14 @@ if (-not $packageScript.Contains('CONTROL PANEL (normal use)')) {
 }
 
 $inventoryDll = '    (Join-Path $packageRoot ''bin\MangoHud.dll''),'
+$inventoryDxgi = '    (Join-Path $packageRoot ''bin\MangoHudDXGI.dll''),'
 $inventoryLauncher = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe''),'
 $inventoryLauncherNoComma = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')'
 $inventoryControl = '    (Join-Path $packageRoot ''MangoHudControl.exe'')'
+if (-not $packageScript.Contains($inventoryDxgi)) {
+    if (-not $packageScript.Contains($inventoryDll)) { throw 'MangoHud.dll package inventory anchor missing.' }
+    $packageScript = $packageScript.Replace($inventoryDll, $inventoryDll + $nl + $inventoryDxgi)
+}
 if (-not $packageScript.Contains($inventoryControl)) {
     if ($packageScript.Contains($inventoryLauncher)) {
         $packageScript = $packageScript.Replace($inventoryLauncher, $inventoryLauncher + $nl + $inventoryControl)
