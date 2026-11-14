@@ -27,11 +27,11 @@ function Expand-GzipBase64Asset([string]$InputPath, [string]$OutputPath) {
         $outputStream.Dispose()
     }
 }
-Expand-GzipBase64Asset (Join-Path $brandingAssets 'YorHud.ico.gz.b64') (Join-Path $brandingAssets 'YorHud.ico')
-Expand-GzipBase64Asset (Join-Path $brandingAssets 'YorHud-Wizard.bmp.gz.b64') (Join-Path $brandingAssets 'YorHud-Wizard.bmp')
-Expand-GzipBase64Asset (Join-Path $brandingAssets 'YorHud-WizardSmall.bmp.gz.b64') (Join-Path $brandingAssets 'YorHud-WizardSmall.bmp')
-Expand-GzipBase64Asset (Join-Path $brandingAssets 'YorHud-Character.jpg.b64') (Join-Path $brandingAssets 'YorHud-Character.jpg')
-Write-Host 'YORHUD installer and mascot artwork decoded.'
+Expand-GzipBase64Asset (Join-Path $brandingAssets 'YorHud-Character.jpg.gz.b64') (Join-Path $brandingAssets 'YorHud-Character.jpg')
+$brandGenerator = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\generate_yorhud_assets.py'
+python $brandGenerator --input (Join-Path $brandingAssets 'YorHud-Character.jpg') --output $brandingAssets
+if ($LASTEXITCODE -ne 0) { throw 'Could not generate YORHUD icon and installer artwork.' }
+Write-Host 'YORHUD mascot, icon and installer images decoded/generated.'
 
 # Enable ImGui OpenGL3 and link the Windows OpenGL/GDI libraries.
 $rootPath = Join-Path $root 'meson.build'
@@ -617,7 +617,7 @@ $copyControl = 'Copy-Item -LiteralPath (Join-Path $buildOut ''YorHud.exe'') -Des
 $copyIcon = 'Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE ''.github\windows-installer\assets\YorHud.ico'') -Destination (Join-Path $packageRoot ''YorHud.ico'')'
 $copyHero = 'Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE ''.github\windows-installer\assets\YorHud-Character.jpg'') -Destination (Join-Path $packageRoot ''YorHud-Character.jpg'')'
 $copyCommands = $copyLauncherDirectory + $nl + $copyDxgi + $nl + $copyLauncher + $nl + $copyControl + $nl + $copyIcon + $nl + $copyHero
-if (-not $packageScript.Contains($copyDxgi) -or -not $packageScript.Contains($copyLauncher) -or -not $packageScript.Contains($copyControl) -or -not $packageScript.Contains($copyIcon)) {
+if (-not $packageScript.Contains($copyDxgi) -or -not $packageScript.Contains($copyLauncher) -or -not $packageScript.Contains($copyControl) -or -not $packageScript.Contains($copyIcon) -or -not $packageScript.Contains($copyHero)) {
     $inventoryMarker = '$binaryPaths = @('
     $inventoryIndex = $packageScript.IndexOf($inventoryMarker)
     if ($inventoryIndex -lt 0) { throw 'Package binary inventory section missing.' }
@@ -907,12 +907,14 @@ static void set_installed_config_path() {
     installRoot.resize(slash); // installation root
 
     const std::wstring configPath = installRoot + L"\\config\\MangoHud.conf";
-    if (GetFileAttributesW(configPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+    if (!std::getenv("MANGOHUD_CONFIGFILE") &&
+        GetFileAttributesW(configPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
         _wputenv_s(L"MANGOHUD_CONFIGFILE", configPath.c_str());
         SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", configPath.c_str());
     }
     const std::wstring presetsPath = installRoot + L"\\config\\presets.conf";
-    if (GetFileAttributesW(presetsPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+    if (!std::getenv("MANGOHUD_PRESETSFILE") &&
+        GetFileAttributesW(presetsPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
         _wputenv_s(L"MANGOHUD_PRESETSFILE", presetsPath.c_str());
         SetEnvironmentVariableW(L"MANGOHUD_PRESETSFILE", presetsPath.c_str());
     }
