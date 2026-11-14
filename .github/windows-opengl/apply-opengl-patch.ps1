@@ -662,11 +662,11 @@ if (-not $packageScript.Contains($inventoryControl)) {
 }
 
 $controlDocs = @'
-CONTROL PANEL (normal use)
-1. Start MangoHudControl.exe from the Start menu or installation folder.
-2. The default process is Firestorm-Releasex64.exe. Change it to another .exe name when needed.
-3. Minimize to the notification area to keep the overlay active without leaving the panel on screen.
-4. Double-click the tray icon to reopen the panel. Right-click it and choose Close MangoHud to stop the overlay and exit.
+YORHUD CONTROL PANEL (normal use)
+1. Start YorHud.exe from the Start menu or installation folder.
+2. YORHUD follows a compatible x64 application in the foreground.
+3. Add compatible MangoHud .conf themes to the skins folder and press ACTUALIZAR.
+4. F10 cycles Stream, Pro, Hardware and Benchmark presets.
 
 '@
 $vulkanMarker = 'VULKAN TEST (does not write to the Windows Registry)'
