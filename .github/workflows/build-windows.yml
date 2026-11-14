@@ -475,7 +475,9 @@ jobs:
             "Exec(ControlExe, '/shutdown'",
             'uninsrestartdelete',
             'Type: filesandordirs; Name: "{app}\config"',
-            'Type: files; Name: "{app}\skin.ini"'
+            'Type: files; Name: "{app}\skin.ini"',
+            'WizardImageFile={#AssetDirectory}\WizardImage.bmp',
+            'WizardSmallImageFile={#AssetDirectory}\WizardSmallImage.bmp'
           )) {
             if (-not $installerScript.Contains($required)) {
               throw "Falta la limpieza de desinstalación: $required"
