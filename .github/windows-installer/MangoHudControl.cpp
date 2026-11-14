@@ -1151,15 +1151,17 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
         FillRect(dc, &client, g_bgBrush);
         if (g_heroImage && g_heroImage->GetLastStatus() == Gdiplus::Ok) {
             Gdiplus::Graphics graphics(dc);
-            // Tall portrait crop from the unchanged 1024x683 source artwork.
-            // The 206x376 destination fills almost the full client height while
-            // the high-resolution source is downsampled cleanly.
+            // This portrait is composed for the complete 206x376 window slot.
+            // Draw its full source rectangle edge-to-edge to remove the empty
+            // dark strip below the character.
             graphics.SetPageUnit(Gdiplus::UnitPixel);
             graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
             graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
             graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
             const Gdiplus::Rect heroBounds(2, 2, 206, 376);
-            graphics.DrawImage(g_heroImage, heroBounds, 45, 0, 374, 683,
+            const INT heroWidth = static_cast<INT>(g_heroImage->GetWidth());
+            const INT heroHeight = static_cast<INT>(g_heroImage->GetHeight());
+            graphics.DrawImage(g_heroImage, heroBounds, 0, 0, heroWidth, heroHeight,
                 Gdiplus::UnitPixel);
         }
 

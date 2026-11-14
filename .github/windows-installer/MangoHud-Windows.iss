@@ -63,10 +63,10 @@ Name: "{group}\Open configuration folder"; Filename: "{sys}\explorer.exe"; Param
 Filename: "{app}\YorHud.exe"; Description: "Iniciar YORHUD"; Flags: postinstall nowait skipifsilent
 
 [UninstallDelete]
-; Remove generated user state that is not tracked as an installed file.
-Type: filesandordirs; Name: "{app}\cache"
-Type: filesandordirs; Name: "{app}\config"
-Type: files; Name: "{app}\skin.ini"
+; Remove the complete per-user YORHUD install directory, including custom
+; skins, edited configuration, cache, logs and files created after setup.
+; {app} resolves only to %LOCALAPPDATA%\Programs\YorHud, not its parent.
+Type: filesandordirs; Name: "{app}"
 
 [Code]
 function InitializeUninstall(): Boolean;
