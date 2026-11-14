@@ -27,10 +27,11 @@ function Expand-GzipBase64Asset([string]$InputPath, [string]$OutputPath) {
         $outputStream.Dispose()
     }
 }
-Expand-GzipBase64Asset (Join-Path $brandingAssets 'MangoHud.ico.gz.b64') (Join-Path $brandingAssets 'MangoHud.ico')
-Expand-GzipBase64Asset (Join-Path $brandingAssets 'WizardImage.bmp.gz.b64') (Join-Path $brandingAssets 'WizardImage.bmp')
-Expand-GzipBase64Asset (Join-Path $brandingAssets 'WizardSmallImage.bmp.gz.b64') (Join-Path $brandingAssets 'WizardSmallImage.bmp')
-Write-Host 'MangoHud installer artwork decoded.'
+Expand-GzipBase64Asset (Join-Path $brandingAssets 'YorHud.ico.gz.b64') (Join-Path $brandingAssets 'YorHud.ico')
+Expand-GzipBase64Asset (Join-Path $brandingAssets 'YorHud-Wizard.bmp.gz.b64') (Join-Path $brandingAssets 'YorHud-Wizard.bmp')
+Expand-GzipBase64Asset (Join-Path $brandingAssets 'YorHud-WizardSmall.bmp.gz.b64') (Join-Path $brandingAssets 'YorHud-WizardSmall.bmp')
+Expand-GzipBase64Asset (Join-Path $brandingAssets 'YorHud-Character.jpg.b64') (Join-Path $brandingAssets 'YorHud-Character.jpg')
+Write-Host 'YORHUD installer and mascot artwork decoded.'
 
 # Enable ImGui OpenGL3 and link the Windows OpenGL/GDI libraries.
 $rootPath = Join-Path $root 'meson.build'
@@ -83,16 +84,21 @@ if (-not $srcMeson.Contains('dep_shell32 =')) {
     if (-not $srcMeson.Contains($shellAnchor)) { throw 'Windows advapi32 declaration anchor missing.' }
     $srcMeson = $srcMeson.Replace($shellAnchor, $shellAnchor + $nl + "dep_shell32 = cc.find_library('shell32', required: true)")
 }
+if (-not $srcMeson.Contains('dep_gdiplus =')) {
+    $gdiplusAnchor = "dep_shell32 = cc.find_library('shell32', required: true)"
+    if (-not $srcMeson.Contains($gdiplusAnchor)) { throw 'Windows shell32 declaration anchor missing for YORHUD artwork.' }
+    $srcMeson = $srcMeson.Replace($gdiplusAnchor, $gdiplusAnchor + $nl + "dep_gdiplus = cc.find_library('gdiplus', required: true)")
+}
 $controlTargetAnchor = 'mangohud_overlay = executable('
-if (-not $srcMeson.Contains('mangohud_control = executable(')) {
+if (-not $srcMeson.Contains('yorhud_control = executable(')) {
     if (-not $srcMeson.Contains($controlTargetAnchor)) { throw 'MangoHud overlay executable anchor missing.' }
     $controlTarget = @'
 # Native GUI control panel with process targeting and a notification-area icon.
-mangohud_control = executable(
-  'MangoHudControl',
+yorhud_control = executable(
+  'YorHud',
   files('app/mangohud_control.cpp'),
   gui_app: true,
-  dependencies: [dep_dwmapi, dep_shell32],
+  dependencies: [dep_dwmapi, dep_shell32, dep_gdiplus],
   install: true,
 )
 
@@ -318,10 +324,13 @@ void load_installed_config(HMODULE module)
 
     const std::wstring configPath = directory + L"\\config\\MangoHud.conf";
     if (GetFileAttributesW(configPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        // MangoHud reads this value through getenv() in its CRT. _wputenv_s
-        // updates that CRT environment as well as the process environment.
         _wputenv_s(L"MANGOHUD_CONFIGFILE", configPath.c_str());
         SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", configPath.c_str());
+    }
+    const std::wstring presetsPath = directory + L"\\config\\presets.conf";
+    if (GetFileAttributesW(presetsPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        _wputenv_s(L"MANGOHUD_PRESETSFILE", presetsPath.c_str());
+        SetEnvironmentVariableW(L"MANGOHUD_PRESETSFILE", presetsPath.c_str());
     }
 }
 
@@ -591,7 +600,7 @@ if (-not $packageScript.Contains($requiredDxgi)) {
     $packageScript = $packageScript.Replace($requiredDll, $requiredDll + $nl + $requiredDxgi)
 }
 $requiredLauncher = '    (Join-Path $buildOut ''MangoHudLauncher.exe''),'
-$requiredControl = '    (Join-Path $buildOut ''MangoHudControl.exe''),'
+$requiredControl = '    (Join-Path $buildOut ''YorHud.exe''),'
 if (-not $packageScript.Contains($requiredLauncher)) {
     if (-not $packageScript.Contains($requiredDll)) { throw 'Required-binaries list anchor missing.' }
     $packageScript = $packageScript.Replace($requiredDll, $requiredDll + $nl + $requiredLauncher)
@@ -604,9 +613,10 @@ if (-not $packageScript.Contains($requiredControl)) {
 $copyLauncherDirectory = 'New-Item -ItemType Directory -Path (Join-Path $packageRoot ''bin'') -Force | Out-Null'
 $copyDxgi = 'Copy-Item -LiteralPath (Join-Path $buildOut ''dxgi.dll'') -Destination (Join-Path $packageRoot ''bin\MangoHudDXGI.dll'')'
 $copyLauncher = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudLauncher.exe'') -Destination (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')'
-$copyControl = 'Copy-Item -LiteralPath (Join-Path $buildOut ''MangoHudControl.exe'') -Destination (Join-Path $packageRoot ''MangoHudControl.exe'')'
-$copyIcon = 'Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE ''.github\windows-installer\assets\MangoHud.ico'') -Destination (Join-Path $packageRoot ''MangoHud.ico'')'
-$copyCommands = $copyLauncherDirectory + $nl + $copyDxgi + $nl + $copyLauncher + $nl + $copyControl + $nl + $copyIcon
+$copyControl = 'Copy-Item -LiteralPath (Join-Path $buildOut ''YorHud.exe'') -Destination (Join-Path $packageRoot ''YorHud.exe'')'
+$copyIcon = 'Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE ''.github\windows-installer\assets\YorHud.ico'') -Destination (Join-Path $packageRoot ''YorHud.ico'')'
+$copyHero = 'Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE ''.github\windows-installer\assets\YorHud-Character.jpg'') -Destination (Join-Path $packageRoot ''YorHud-Character.jpg'')'
+$copyCommands = $copyLauncherDirectory + $nl + $copyDxgi + $nl + $copyLauncher + $nl + $copyControl + $nl + $copyIcon + $nl + $copyHero
 if (-not $packageScript.Contains($copyDxgi) -or -not $packageScript.Contains($copyLauncher) -or -not $packageScript.Contains($copyControl) -or -not $packageScript.Contains($copyIcon)) {
     $inventoryMarker = '$binaryPaths = @('
     $inventoryIndex = $packageScript.IndexOf($inventoryMarker)
@@ -616,10 +626,10 @@ if (-not $packageScript.Contains($copyDxgi) -or -not $packageScript.Contains($co
 
 $readmeControl = @'
 CONTROL PANEL (normal use)
-1. Start MangoHudControl.exe from the Start menu or installation folder.
+1. Start YorHud.exe from the Start menu or installation folder.
 2. The panel automatically follows the compatible application in the foreground. There is no application selector.
 3. Minimize to the notification area to keep the overlay active without leaving the panel on screen.
-4. Double-click the tray icon to reopen the panel. Right-click it and choose Close MangoHud to stop the overlay and exit.
+4. Double-click the tray icon to reopen the panel. Right-click it and choose Exit YORHUD to stop the overlay and exit.
 
 '@
 if (-not $packageScript.Contains('CONTROL PANEL (normal use)')) {
@@ -634,7 +644,7 @@ $inventoryDll = '    (Join-Path $packageRoot ''bin\MangoHud.dll''),'
 $inventoryDxgi = '    (Join-Path $packageRoot ''bin\MangoHudDXGI.dll''),'
 $inventoryLauncher = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe''),'
 $inventoryLauncherNoComma = '    (Join-Path $packageRoot ''bin\MangoHudLauncher.exe'')'
-$inventoryControl = '    (Join-Path $packageRoot ''MangoHudControl.exe'')'
+$inventoryControl = '    (Join-Path $packageRoot ''YorHud.exe'')'
 if (-not $packageScript.Contains($inventoryDxgi)) {
     if (-not $packageScript.Contains($inventoryDll)) { throw 'MangoHud.dll package inventory anchor missing.' }
     $packageScript = $packageScript.Replace($inventoryDll, $inventoryDll + $nl + $inventoryDxgi)
@@ -897,9 +907,15 @@ static void set_installed_config_path() {
     installRoot.resize(slash); // installation root
 
     const std::wstring configPath = installRoot + L"\\config\\MangoHud.conf";
-    if (GetFileAttributesW(configPath.c_str()) == INVALID_FILE_ATTRIBUTES) return;
-    _wputenv_s(L"MANGOHUD_CONFIGFILE", configPath.c_str());
-    SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", configPath.c_str());
+    if (GetFileAttributesW(configPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        _wputenv_s(L"MANGOHUD_CONFIGFILE", configPath.c_str());
+        SetEnvironmentVariableW(L"MANGOHUD_CONFIGFILE", configPath.c_str());
+    }
+    const std::wstring presetsPath = installRoot + L"\\config\\presets.conf";
+    if (GetFileAttributesW(presetsPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        _wputenv_s(L"MANGOHUD_PRESETSFILE", presetsPath.c_str());
+        SetEnvironmentVariableW(L"MANGOHUD_PRESETSFILE", presetsPath.c_str());
+    }
 }
 '@
     if (-not $sharedSource.Contains('void init_d3d_shared(){')) {
@@ -965,157 +981,6 @@ if (-not $d3d12Source.Contains('if (!d3d_overlay_enabled())')) {
     [System.IO.File]::WriteAllText($d3d12Path, $d3d12Source, [System.Text.UTF8Encoding]::new($false))
 }
 
-# Animal Crossing: chat-style speech bubbles with alternating tails, soft outlines and pastel category colors.
-$overlayPath = Join-Path $root 'src/overlay.cpp'
-$overlaySource = [System.IO.File]::ReadAllText($overlayPath)
-if (-not $overlaySource.Contains('MangoHudAnimalCrossingChatBubbles')) {
-    $spacingAnchor = '   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8,-3));'
-    $spacingReplacement = @'
-   const bool mangoHudAnimalCrossingChatBubbles = params.round_corners >= 14.0f;
-   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
-       mangoHudAnimalCrossingChatBubbles ? ImVec2(9, 7) : ImVec2(8, -3));
-'@
-    if (-not $overlaySource.Contains($spacingAnchor)) {
-        throw 'Animal Crossing chat-bubble spacing insertion point missing in overlay.cpp.'
-    }
-    $overlaySource = $overlaySource.Replace($spacingAnchor, $spacingReplacement.TrimEnd())
-
-    $loopPattern = 'HUDElements\.place\s*=\s*0;\s*for\s*\(auto&\s*func\s*:\s*HUDElements\.ordered_functions\)\s*\{[\s\S]*?horizontal_separator\(params\);\s*\}'
-    $loopReplacement = @'
-        // MangoHudAnimalCrossingChatBubbles: one speech bubble per metric group.
-        const bool useChatBubbleLayout =
-            real_params->round_corners >= 14.0f &&
-            !real_params->enabled[OVERLAY_PARAM_ENABLED_horizontal];
-        HUDElements.place = 0;
-        for (auto& func : HUDElements.ordered_functions) {
-            if (!real_params->enabled[OVERLAY_PARAM_ENABLED_horizontal] &&
-                func.name != "exec")
-                ImGui::TableNextRow();
-
-            ImGuiTable* bubbleTable = useChatBubbleLayout
-                ? ImGui::GetCurrentTable() : nullptr;
-            const float bubbleTop = bubbleTable ? bubbleTable->RowPosY2 : 0.0f;
-
-            func.run();
-
-            if (bubbleTable && func.name != "exec") {
-                ImGui::TableNextRow();
-                const float bubbleBottom = bubbleTable->RowPosY1;
-                if (bubbleBottom - bubbleTop > 8.0f && bubbleTable->DrawSplitter) {
-                    ImDrawList* drawList = ImGui::GetWindowDrawList();
-                    const int previousChannel = bubbleTable->DrawSplitter->_Current;
-                    bubbleTable->DrawSplitter->SetCurrentChannel(drawList, 0);
-
-                    static const ImU32 bubbleFills[] = {
-                        IM_COL32(232, 246, 222, 250), // leaf / GPU
-                        IM_COL32(255, 232, 219, 250), // peach / CPU
-                        IM_COL32(225, 241, 248, 250), // sky / memory
-                        IM_COL32(255, 244, 211, 250), // butter / FPS
-                        IM_COL32(241, 232, 249, 250)  // lilac / graphs
-                    };
-                    static const ImU32 bubbleAccents[] = {
-                        IM_COL32(103, 151, 91, 235),
-                        IM_COL32(196, 123, 99, 235),
-                        IM_COL32(91, 145, 169, 235),
-                        IM_COL32(190, 151, 63, 235),
-                        IM_COL32(145, 119, 174, 235)
-                    };
-
-                    size_t bubbleIndex = static_cast<size_t>(HUDElements.place % 5);
-                    if (func.name.find("gpu") != std::string::npos)
-                        bubbleIndex = 0;
-                    else if (func.name.find("cpu") != std::string::npos ||
-                             func.name.find("core") != std::string::npos)
-                        bubbleIndex = 1;
-                    else if (func.name.find("ram") != std::string::npos ||
-                             func.name.find("vram") != std::string::npos ||
-                             func.name.find("memory") != std::string::npos)
-                        bubbleIndex = 2;
-                    else if (func.name.find("fps") != std::string::npos ||
-                             func.name.find("frametime") != std::string::npos)
-                        bubbleIndex = 3;
-                    else if (func.name.find("graph") != std::string::npos)
-                        bubbleIndex = 4;
-
-                    const float left = bubbleTable->WorkRect.Min.x;
-                    const float right = bubbleTable->WorkRect.Max.x;
-                    const ImVec2 cardMin(left + 5.0f, bubbleTop + 2.0f);
-                    const ImVec2 cardMax(right - 5.0f, bubbleBottom - 2.0f);
-                    const float rounding = 17.0f;
-                    const bool tailOnRight = (HUDElements.place % 2) != 0;
-
-                    // The little speech tail alternates sides, like stacked chat messages.
-                    const ImVec2 tailA = tailOnRight
-                        ? ImVec2(cardMax.x - 37.0f, cardMax.y - 4.0f)
-                        : ImVec2(cardMin.x + 17.0f, cardMax.y - 4.0f);
-                    const ImVec2 tailB = tailOnRight
-                        ? ImVec2(cardMax.x - 16.0f, cardMax.y - 4.0f)
-                        : ImVec2(cardMin.x + 38.0f, cardMax.y - 4.0f);
-                    const ImVec2 tailTip = tailOnRight
-                        ? ImVec2(cardMax.x - 21.0f, cardMax.y + 5.5f)
-                        : ImVec2(cardMin.x + 22.0f, cardMax.y + 5.5f);
-
-                    const ImU32 shadow = IM_COL32(57, 78, 57, 27);
-                    drawList->AddTriangleFilled(
-                        ImVec2(tailA.x, tailA.y + 2.0f),
-                        ImVec2(tailB.x, tailB.y + 2.0f),
-                        ImVec2(tailTip.x, tailTip.y + 2.0f), shadow);
-                    drawList->AddRectFilled(
-                        ImVec2(cardMin.x, cardMin.y + 2.0f),
-                        ImVec2(cardMax.x, cardMax.y + 2.0f),
-                        shadow, rounding, ImDrawFlags_RoundCornersAll);
-
-                    drawList->AddTriangleFilled(tailA, tailB, tailTip, bubbleFills[bubbleIndex]);
-                    drawList->AddRectFilled(
-                        cardMin, cardMax, bubbleFills[bubbleIndex],
-                        rounding, ImDrawFlags_RoundCornersAll);
-                    drawList->AddRect(
-                        cardMin, cardMax, bubbleAccents[bubbleIndex],
-                        rounding, ImDrawFlags_RoundCornersAll, 1.15f);
-                    // A soft glossy edge gives the bubbles more depth than flat cards.
-                    drawList->AddLine(
-                        ImVec2(cardMin.x + 20.0f, cardMin.y + 1.5f),
-                        ImVec2(cardMax.x - 20.0f, cardMin.y + 1.5f),
-                        IM_COL32(255, 255, 255, 205), 1.0f);
-                    drawList->AddLine(tailA, tailTip, bubbleAccents[bubbleIndex], 1.15f);
-                    drawList->AddLine(tailTip, tailB, bubbleAccents[bubbleIndex], 1.15f);
-                    drawList->AddCircleFilled(
-                        ImVec2(tailTip.x + (tailOnRight ? 5.5f : -5.5f), tailTip.y - 1.0f),
-                        1.5f, bubbleAccents[bubbleIndex]);
-
-                    bubbleTable->DrawSplitter->SetCurrentChannel(drawList, previousChannel);
-                }
-            }
-
-            HUDElements.place += 1;
-            if (!HUDElements.ordered_functions.empty() &&
-                real_params->enabled[OVERLAY_PARAM_ENABLED_horizontal] &&
-                HUDElements.ordered_functions.size() != (size_t)HUDElements.place)
-                horizontal_separator(params);
-        }
-'@
-    $updatedOverlay = [regex]::Replace($overlaySource, $loopPattern, $loopReplacement.TrimEnd(), 1)
-    if ($updatedOverlay -eq $overlaySource) {
-        throw 'Could not install Animal Crossing chat-style speech-bubble layout.'
-    }
-    [System.IO.File]::WriteAllText($overlayPath, $updatedOverlay, [System.Text.UTF8Encoding]::new($false))
-}
-
-$hudElementsPath = Join-Path $root 'src/hud_elements.cpp'
-$hudElementsSource = [System.IO.File]::ReadAllText($hudElementsPath)
-if (-not $hudElementsSource.Contains('MangoHudAnimalCrossingFrameRounding')) {
-    $roundingAnchor = '    style.WindowRounding = params.round_corners;'
-    $roundingReplacement = @'
-    style.WindowRounding = params.round_corners;
-    // MangoHudAnimalCrossingFrameRounding: round graph/progress frames only for this theme.
-    style.FrameRounding = params.round_corners >= 14.0f ? 9.0f : 0.0f;
-    style.AntiAliasedFill = params.round_corners >= 14.0f;
-'@
-    if (-not $hudElementsSource.Contains($roundingAnchor)) {
-        throw 'Animal Crossing frame-rounding insertion point missing in hud_elements.cpp.'
-    }
-    $hudElementsSource = $hudElementsSource.Replace($roundingAnchor, $roundingReplacement.TrimEnd())
-    [System.IO.File]::WriteAllText($hudElementsPath, $hudElementsSource, [System.Text.UTF8Encoding]::new($false))
-}
+# Keep the upstream renderer untouched. YORHUD uses native MangoHud .conf themes and preset switching.
 
 Write-Host 'DXGI proxy now supports in-process initialization and per-PID Control activation.'
