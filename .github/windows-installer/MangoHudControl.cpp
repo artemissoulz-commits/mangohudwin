@@ -10,6 +10,8 @@
 #include <cwctype>
 #include <iterator>
 #include <utility>
+#include <memory>
+#include <gdiplus.h>
 
 namespace {
 constexpr wchar_t kClass[] = L"YorHudControl";
@@ -40,8 +42,8 @@ HFONT g_titleFont{}, g_font{}, g_smallFont{};
 HBRUSH g_bgBrush{};
 HBRUSH g_cardBrush{};
 HICON g_appIcon{};
-HBITMAP g_heroBitmap{};
-int g_heroWidth{}, g_heroHeight{};
+Gdiplus::Image* g_heroImage{};
+ULONG_PTR g_gdiplusToken{};
 COLORREF g_statusColor = RGB(246, 151, 198);
 
 std::wstring app_dir() {
@@ -1079,21 +1081,12 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
         RECT client{};
         GetClientRect(window, &client);
 
-        if (g_heroBitmap && g_heroWidth > 0 && g_heroHeight > 0) {
-            HDC imageDc = CreateCompatibleDC(dc);
-            if (imageDc) {
-                HGDIOBJ oldBitmap = SelectObject(imageDc, g_heroBitmap);
-                SetStretchBltMode(dc, HALFTONE);
-                SetBrushOrgEx(dc, 0, 0, nullptr);
-                StretchBlt(dc, 0, 0, client.right, client.bottom,
-                    imageDc, 0, 0, g_heroWidth, g_heroHeight, SRCCOPY);
-                SelectObject(imageDc, oldBitmap);
-                DeleteDC(imageDc);
-            } else {
-                FillRect(dc, &client, g_bgBrush);
-            }
-        } else {
-            FillRect(dc, &client, g_bgBrush);
+        FillRect(dc, &client, g_bgBrush);
+        if (g_heroImage && g_heroImage->GetLastStatus() == Gdiplus::Ok) {
+            Gdiplus::Graphics graphics(dc);
+            graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+            graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+            graphics.DrawImage(g_heroImage, 0, 0, client.right, client.bottom);
         }
 
         // A restrained dark glass panel sits over the deliberately empty right
@@ -1226,14 +1219,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     g_appIcon = static_cast<HICON>(LoadImageW(nullptr, iconPath.c_str(), IMAGE_ICON,
         64, 64, LR_LOADFROMFILE | LR_DEFAULTCOLOR));
 
-    const std::wstring heroPath = app_dir() + L"\\YorHud-Character.bmp";
-    g_heroBitmap = static_cast<HBITMAP>(LoadImageW(nullptr, heroPath.c_str(), IMAGE_BITMAP,
-        0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION));
-    if (g_heroBitmap) {
-        BITMAP heroInfo{};
-        if (GetObjectW(g_heroBitmap, sizeof(heroInfo), &heroInfo) == sizeof(heroInfo)) {
-            g_heroWidth = heroInfo.bmWidth;
-            g_heroHeight = heroInfo.bmHeight;
+    const std::wstring heroPath = app_dir() + L"\\YorHud-Character.jpg";
+    Gdiplus::GdiplusStartupInput gdiplusInput;
+    if (Gdiplus::GdiplusStartup(&g_gdiplusToken, &gdiplusInput, nullptr) == Gdiplus::Ok) {
+        g_heroImage = Gdiplus::Image::FromFile(heroPath.c_str(), FALSE);
+        if (g_heroImage && g_heroImage->GetLastStatus() != Gdiplus::Ok) {
+            delete g_heroImage;
+            g_heroImage = nullptr;
         }
     }
 
@@ -1317,7 +1309,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     if (g_smallFont) DeleteObject(g_smallFont);
     if (g_bgBrush) DeleteObject(g_bgBrush);
     if (g_cardBrush) DeleteObject(g_cardBrush);
-    if (g_heroBitmap) DeleteObject(g_heroBitmap);
+    if (g_heroImage) { delete g_heroImage; g_heroImage = nullptr; }
+    if (g_gdiplusToken) Gdiplus::GdiplusShutdown(g_gdiplusToken);
     if (g_appIcon) DestroyIcon(g_appIcon);
     if (mutex) CloseHandle(mutex);
     return static_cast<int>(msg.wParam);
