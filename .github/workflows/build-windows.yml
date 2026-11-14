@@ -411,7 +411,7 @@ jobs:
         shell: pwsh
         run: |
           $assetDir = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\assets'
-          foreach ($asset in @('YorHud.ico', 'YorHud-Wizard.png', 'YorHud-WizardSmall.png', 'YorHud-Character.jpg')) {
+          foreach ($asset in @('YorHud.ico', 'YorHud-Wizard-1x.png', 'YorHud-Wizard-2x.png', 'YorHud-WizardSmall.png', 'YorHud-Character.jpg')) {
             $assetPath = Join-Path $assetDir $asset
             if (-not (Test-Path -LiteralPath $assetPath)) { throw "Missing YORHUD artwork: $asset" }
             $item = Get-Item -LiteralPath $assetPath
@@ -448,7 +448,7 @@ jobs:
             throw 'El paquete no contiene los perfiles nativos F10'
           }
           $assetDir = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\assets'
-          foreach ($asset in @('YorHud.ico', 'YorHud-Wizard.png', 'YorHud-WizardSmall.png')) {
+          foreach ($asset in @('YorHud.ico', 'YorHud-Wizard-1x.png', 'YorHud-WizardSmall.png')) {
             if (-not (Test-Path -LiteralPath (Join-Path $assetDir $asset))) {
               throw "Falta el recurso visual del instalador: $asset"
             }
@@ -479,8 +479,9 @@ jobs:
             'uninsrestartdelete',
             'Type: filesandordirs; Name: "{app}\config"',
             'Type: files; Name: "{app}\skin.ini"',
-            'WizardImageFile={#AssetDirectory}\YorHud-Wizard.png',
+            'WizardImageFile={#AssetDirectory}\YorHud-Wizard-1x.png,{#AssetDirectory}\YorHud-Wizard-2x.png',
             'WizardSmallImageFile={#AssetDirectory}\YorHud-WizardSmall.png',
+            'WizardSmallImageBackColor=none',
             'OutputBaseFilename=YorHud-Setup-x64',
             'Filename: "{app}\YorHud.exe"'
           )) {
