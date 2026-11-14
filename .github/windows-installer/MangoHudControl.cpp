@@ -16,7 +16,7 @@ constexpr wchar_t kClass[] = L"YorHudControl";
 constexpr UINT kTrayMessage = WM_APP + 7;
 constexpr UINT_PTR kTimerId = 1;
 constexpr UINT kExitMessage = WM_APP + 8;
-constexpr int ID_ENABLED = 1103, ID_STATUS = 1104, ID_SKIN = 1105;
+constexpr int ID_ENABLED = 1103, ID_STATUS = 1104, ID_SKIN = 1105, ID_REFRESH_SKINS = 1106;
 constexpr int MENU_OPEN = 1, MENU_TOGGLE = 2, MENU_EXIT = 3;
 
 struct AppWindow {
@@ -25,7 +25,7 @@ struct AppWindow {
     std::wstring title;
 };
 
-HWND g_main{}, g_enabledCheck{}, g_status{}, g_skinCombo{};
+HWND g_main{}, g_enabledCheck{}, g_status{}, g_skinCombo{}, g_refreshSkins{};
 HANDLE g_overlay{};
 HANDLE g_overlayEvent{};
 HANDLE g_dxgiOverlayEvent{};
@@ -40,7 +40,9 @@ HFONT g_titleFont{}, g_font{}, g_smallFont{};
 HBRUSH g_bgBrush{};
 HBRUSH g_cardBrush{};
 HICON g_appIcon{};
-COLORREF g_statusColor = RGB(87, 105, 128);
+HBITMAP g_heroBitmap{};
+int g_heroWidth{}, g_heroHeight{};
+COLORREF g_statusColor = RGB(246, 151, 198);
 
 std::wstring app_dir() {
     std::vector<wchar_t> b(32768);
@@ -80,6 +82,7 @@ bool ignored_process(const std::wstring& exeName) {
     const std::wstring e = lower(exeName);
     static const wchar_t* ignored[] = {
         L"mangohud.exe", L"mangohudcontrol.exe", L"mangohudlauncher.exe",
+        L"yorhud.exe", L"yorhud-setup-x64.exe", L"setup.exe",
         L"explorer.exe", L"firefox.exe", L"chrome.exe", L"msedge.exe",
         L"brave.exe", L"opera.exe", L"vivaldi.exe", L"waterfox.exe",
         L"discord.exe", L"steam.exe", L"steamwebhelper.exe",
@@ -930,6 +933,16 @@ int load_skin_selection() {
     return 0;
 }
 
+void refresh_skin_combo() {
+    if (!g_skinCombo) return;
+    discover_skins();
+    SendMessageW(g_skinCombo, CB_RESETCONTENT, 0, 0);
+    for (const auto& skin : g_skins)
+        SendMessageW(g_skinCombo, CB_ADDSTRING, 0,
+            reinterpret_cast<LPARAM>(skin.name.c_str()));
+    SendMessageW(g_skinCombo, CB_SETCURSEL, load_skin_selection(), 0);
+}
+
 void request_skin_reload(DWORD pid) {
     if (!pid) return;
     if (g_skinReloadEvent && g_skinReloadPid != pid) {
@@ -1025,6 +1038,11 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
             if (selected != CB_ERR) apply_skin(static_cast<int>(selected));
             return 0;
         }
+        if (LOWORD(wParam) == ID_REFRESH_SKINS && HIWORD(wParam) == BN_CLICKED) {
+            refresh_skin_combo();
+            set_status(L"Skins actualizadas · los archivos .conf nuevos ya están disponibles.");
+            return 0;
+        }
         if (LOWORD(wParam) == ID_ENABLED && HIWORD(wParam) == BN_CLICKED) {
             g_enabled = SendMessageW(g_enabledCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
             if (g_enabled) {
@@ -1040,57 +1058,65 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
         if (LOWORD(wParam) == MENU_EXIT) { exit_application(); return 0; }
         break;
 
-    case WM_CTLCOLORSTATIC: {
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLORBTN: {
         HDC dc = reinterpret_cast<HDC>(wParam);
         SetBkMode(dc, TRANSPARENT);
         HWND child = reinterpret_cast<HWND>(lParam);
         const int controlId = GetDlgCtrlID(child);
-        SetTextColor(dc, controlId == ID_STATUS ? g_statusColor : RGB(40, 49, 61));
-
-        RECT childRect{};
-        GetWindowRect(child, &childRect);
-        MapWindowPoints(nullptr, window, reinterpret_cast<POINT*>(&childRect), 2);
-        const bool insideStatusCard = childRect.top >= 116 && childRect.top < 226;
-        return reinterpret_cast<LRESULT>(insideStatusCard ? g_cardBrush : g_bgBrush);
+        if (controlId == ID_STATUS)
+            SetTextColor(dc, g_statusColor);
+        else
+            SetTextColor(dc, RGB(244, 238, 247));
+        return reinterpret_cast<LRESULT>(GetStockObject(HOLLOW_BRUSH));
     }
-    case WM_ERASEBKGND: {
-        RECT rect{};
-        GetClientRect(window, &rect);
-        FillRect(reinterpret_cast<HDC>(wParam), &rect, g_bgBrush);
+    case WM_ERASEBKGND:
+        // WM_PAINT draws the mascot artwork; suppress the default erase to avoid flicker.
         return 1;
-    }
     case WM_PAINT: {
         PAINTSTRUCT paint{};
         HDC dc = BeginPaint(window, &paint);
         RECT client{};
         GetClientRect(window, &client);
-        FillRect(dc, &client, g_bgBrush);
 
-        HPEN dividerPen = CreatePen(PS_SOLID, 1, RGB(222, 227, 234));
-        HGDIOBJ oldPen = SelectObject(dc, dividerPen);
-        MoveToEx(dc, 24, 98, nullptr);
-        LineTo(dc, client.right - 24, 98);
-        SelectObject(dc, oldPen);
-        DeleteObject(dividerPen);
+        if (g_heroBitmap && g_heroWidth > 0 && g_heroHeight > 0) {
+            HDC imageDc = CreateCompatibleDC(dc);
+            if (imageDc) {
+                HGDIOBJ oldBitmap = SelectObject(imageDc, g_heroBitmap);
+                SetStretchBltMode(dc, HALFTONE);
+                SetBrushOrgEx(dc, 0, 0, nullptr);
+                StretchBlt(dc, 0, 0, client.right, client.bottom,
+                    imageDc, 0, 0, g_heroWidth, g_heroHeight, SRCCOPY);
+                SelectObject(imageDc, oldBitmap);
+                DeleteDC(imageDc);
+            } else {
+                FillRect(dc, &client, g_bgBrush);
+            }
+        } else {
+            FillRect(dc, &client, g_bgBrush);
+        }
 
-        RECT card{24, 116, client.right - 24, 226};
+        // A restrained dark glass panel sits over the deliberately empty right
+        // half of the mascot artwork, leaving the character fully visible.
+        RECT panel{630, 22, client.right - 18, client.bottom - 22};
         HGDIOBJ oldBrush = SelectObject(dc, g_cardBrush);
-        HPEN cardPen = CreatePen(PS_SOLID, 1, RGB(229, 233, 239));
-        oldPen = SelectObject(dc, cardPen);
-        RoundRect(dc, card.left, card.top, card.right, card.bottom, 12, 12);
+        HPEN panelPen = CreatePen(PS_SOLID, 1, RGB(118, 73, 105));
+        HGDIOBJ oldPen = SelectObject(dc, panelPen);
+        RoundRect(dc, panel.left, panel.top, panel.right, panel.bottom, 24, 24);
         SelectObject(dc, oldPen);
         SelectObject(dc, oldBrush);
-        DeleteObject(cardPen);
+        DeleteObject(panelPen);
 
-        HBRUSH dotBrush = CreateSolidBrush(g_statusColor);
-        oldBrush = SelectObject(dc, dotBrush);
-        oldPen = SelectObject(dc, GetStockObject(NULL_PEN));
-        Ellipse(dc, 36, 164, 46, 174);
+        if (g_appIcon)
+            DrawIconEx(dc, 655, 49, g_appIcon, 48, 48, 0, nullptr, DI_NORMAL);
+
+        HPEN accentPen = CreatePen(PS_SOLID, 1, RGB(205, 112, 166));
+        oldPen = SelectObject(dc, accentPen);
+        MoveToEx(dc, 657, 143, nullptr);
+        LineTo(dc, client.right - 46, 143);
         SelectObject(dc, oldPen);
-        SelectObject(dc, oldBrush);
-        DeleteObject(dotBrush);
+        DeleteObject(accentPen);
 
-        if (g_appIcon) DrawIconEx(dc, 26, 18, g_appIcon, 64, 64, 0, nullptr, DI_NORMAL);
         EndPaint(window, &paint);
         return 0;
     }
@@ -1184,9 +1210,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
         return 0;
     }
 
-    g_bgBrush = CreateSolidBrush(RGB(243, 245, 248));
-    g_cardBrush = CreateSolidBrush(RGB(255, 255, 255));
-    g_titleFont = CreateFontW(-29, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+    g_bgBrush = CreateSolidBrush(RGB(13, 11, 17));
+    g_cardBrush = CreateSolidBrush(RGB(19, 15, 23));
+    g_titleFont = CreateFontW(-37, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
         DEFAULT_PITCH, L"Segoe UI");
     g_font = CreateFontW(-16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
@@ -1197,9 +1223,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
         DEFAULT_PITCH, L"Segoe UI");
 
     const std::wstring iconPath = app_dir() + L"\\YorHud.ico";
-    // Request the 64x64 PNG frame directly; do not scale up a smaller system icon.
     g_appIcon = static_cast<HICON>(LoadImageW(nullptr, iconPath.c_str(), IMAGE_ICON,
         64, 64, LR_LOADFROMFILE | LR_DEFAULTCOLOR));
+
+    const std::wstring heroPath = app_dir() + L"\\YorHud-Character.bmp";
+    g_heroBitmap = static_cast<HBITMAP>(LoadImageW(nullptr, heroPath.c_str(), IMAGE_BITMAP,
+        0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION));
+    if (g_heroBitmap) {
+        BITMAP heroInfo{};
+        if (GetObjectW(g_heroBitmap, sizeof(heroInfo), &heroInfo) == sizeof(heroInfo)) {
+            g_heroWidth = heroInfo.bmWidth;
+            g_heroHeight = heroInfo.bmHeight;
+        }
+    }
 
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
@@ -1214,53 +1250,60 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
 
     g_main = CreateWindowExW(WS_EX_APPWINDOW, kClass, L"YORHUD",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 520, 420,
+        CW_USEDEFAULT, CW_USEDEFAULT, 1050, 720,
         nullptr, nullptr, instance, nullptr);
     if (!g_main) return 2;
 
     SendMessageW(g_main, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(g_appIcon));
     SendMessageW(g_main, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(g_appIcon));
 
-    make_child(L"STATIC", L"YORHUD", SS_LEFT, 108, 26, 360, 38, 0);
-    HWND subtitle = make_child(L"STATIC", L"WINDOWS PERFORMANCE OVERLAY", SS_LEFT, 110, 64, 360, 20, 0);
+    HWND title = make_child(L"STATIC", L"YORHUD", SS_LEFT, 714, 54, 272, 50, 0);
+    if (title && g_titleFont)
+        SendMessageW(title, WM_SETFONT, reinterpret_cast<WPARAM>(g_titleFont), TRUE);
+    HWND subtitle = make_child(L"STATIC", L"WINDOWS PERFORMANCE OVERLAY", SS_LEFT, 715, 107, 280, 24, 0);
     if (subtitle) SendMessageW(subtitle, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
 
-    HWND statusCaption = make_child(L"STATIC", L"ESTADO DE CONEXIÓN", SS_LEFT, 54, 132, 410, 18, 0);
+    HWND statusCaption = make_child(L"STATIC", L"ESTADO DE CONEXIÓN", SS_LEFT, 660, 178, 330, 20, 0);
     if (statusCaption) SendMessageW(statusCaption, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
-    g_status = make_child(L"STATIC", L"Esperando una aplicación compatible…", SS_LEFT, 54, 155, 410, 25, ID_STATUS);
+    g_status = make_child(L"STATIC", L"Esperando una aplicación compatible…", SS_LEFT, 660, 208, 330, 34, ID_STATUS);
     if (g_status) SendMessageW(g_status, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
-    HWND followHint = make_child(L"STATIC", L"El HUD seguirá automáticamente la aplicación en primer plano.",
-        SS_LEFT, 54, 187, 410, 20, 0);
+    HWND followHint = make_child(L"STATIC", L"El HUD sigue automáticamente la aplicación en primer plano.",
+        SS_LEFT, 660, 250, 330, 34, 0);
     if (followHint) SendMessageW(followHint, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
 
-    HWND skinCaption = make_child(L"STATIC", L"APARIENCIA DEL HUD", SS_LEFT, 30, 242, 150, 20, 0);
+    HWND skinCaption = make_child(L"STATIC", L"APARIENCIA DEL HUD", SS_LEFT, 660, 334, 330, 20, 0);
     if (skinCaption) SendMessageW(skinCaption, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
     g_skinCombo = make_child(L"COMBOBOX", L"",
         CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL,
-        190, 236, 280, 170, ID_SKIN);
-    if (g_skinCombo) {
-        discover_skins();
-        for (const auto& skin : g_skins)
-            SendMessageW(g_skinCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(skin.name.c_str()));
-        SendMessageW(g_skinCombo, CB_SETCURSEL, load_skin_selection(), 0);
-    }
+        660, 365, 238, 190, ID_SKIN);
+    g_refreshSkins = make_child(L"BUTTON", L"ACTUALIZAR",
+        BS_PUSHBUTTON | WS_TABSTOP, 907, 365, 88, 28, ID_REFRESH_SKINS);
+    if (g_refreshSkins)
+        SendMessageW(g_refreshSkins, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
+    refresh_skin_combo();
 
-    g_enabledCheck = make_child(L"BUTTON", L"HUD activado",
-        BS_AUTOCHECKBOX | WS_TABSTOP, 30, 292, 450, 30, ID_ENABLED);
-    HWND footer = make_child(L"STATIC", L"SKINS EXTERNAS: ARCHIVOS .CONF EN \\SKINS", SS_LEFT, 30, 330, 450, 18, 0);
+    g_enabledCheck = make_child(L"BUTTON", L"Overlay activado",
+        BS_AUTOCHECKBOX | WS_TABSTOP, 660, 414, 330, 30, ID_ENABLED);
+    HWND skinsHelp = make_child(L"STATIC",
+        L"Añade archivos .conf compatibles a la carpeta skins y pulsa ACTUALIZAR.",
+        SS_LEFT, 660, 455, 335, 38, 0);
+    if (skinsHelp) SendMessageW(skinsHelp, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
+    HWND presetHint = make_child(L"STATIC",
+        L"F10 · Cambiar perfil del HUD: Stream / Pro / Benchmark / FPS.",
+        SS_LEFT, 660, 510, 335, 40, 0);
+    if (presetHint) SendMessageW(presetHint, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
+    HWND footer = make_child(L"STATIC", L"YORHUD  ·  MONITORIZACIÓN EN TIEMPO REAL",
+        SS_LEFT, 660, 580, 335, 22, 0);
     if (footer) SendMessageW(footer, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
 
     
-    if (g_titleFont) {
-        HWND title = FindWindowExW(g_main, nullptr, L"STATIC", L"YORHUD");
-        if (title) SendMessageW(title, WM_SETFONT, reinterpret_cast<WPARAM>(g_titleFont), TRUE);
-    }
     SendMessageW(g_enabledCheck, BM_SETCHECK, BST_CHECKED, 0);
 
     SetTimer(g_main, kTimerId, 1200, nullptr);
     add_tray();
     refresh_apps();
-    hide_to_tray();
+    ShowWindow(g_main, SW_SHOW);
+    UpdateWindow(g_main);
 
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
@@ -1274,6 +1317,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     if (g_smallFont) DeleteObject(g_smallFont);
     if (g_bgBrush) DeleteObject(g_bgBrush);
     if (g_cardBrush) DeleteObject(g_cardBrush);
+    if (g_heroBitmap) DeleteObject(g_heroBitmap);
     if (g_appIcon) DestroyIcon(g_appIcon);
     if (mutex) CloseHandle(mutex);
     return static_cast<int>(msg.wParam);
