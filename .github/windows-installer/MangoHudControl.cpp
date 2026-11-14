@@ -18,7 +18,7 @@ constexpr wchar_t kClass[] = L"YorHudControl";
 constexpr UINT kTrayMessage = WM_APP + 7;
 constexpr UINT_PTR kTimerId = 1;
 constexpr UINT kExitMessage = WM_APP + 8;
-constexpr int ID_ENABLED = 1103, ID_STATUS = 1104, ID_SKIN = 1105, ID_REFRESH_SKINS = 1106;
+constexpr int ID_ENABLED = 1103, ID_STATUS = 1104, ID_SKIN = 1105, ID_REFRESH_SKINS = 1106, ID_OPEN_SKINS = 1107;
 constexpr int MENU_OPEN = 1, MENU_TOGGLE = 2, MENU_EXIT = 3;
 
 struct AppWindow {
@@ -27,7 +27,7 @@ struct AppWindow {
     std::wstring title;
 };
 
-HWND g_main{}, g_enabledCheck{}, g_status{}, g_skinCombo{}, g_refreshSkins{};
+HWND g_main{}, g_enabledCheck{}, g_status{}, g_skinCombo{}, g_refreshSkins{}, g_openSkinsButton{};
 HANDLE g_overlay{};
 HANDLE g_overlayEvent{};
 HANDLE g_dxgiOverlayEvent{};
@@ -756,7 +756,7 @@ bool start_overlay() {
         ResetEvent(enabledEvent);
         CloseHandle(enabledEvent);
         CloseHandle(process);
-        set_status(L"MangoHud.dll no confirmó el protocolo de Control. Reinicia la aplicación antes de volver a probar.");
+        set_status(L"YORHUD no confirmó la conexión del HUD. Reinicia la aplicación y vuelve a probar.");
         return false;
     }
 
@@ -1046,6 +1046,17 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
             set_status(L"Skins actualizadas · los archivos .conf nuevos ya están disponibles.");
             return 0;
         }
+        if (LOWORD(wParam) == ID_OPEN_SKINS && HIWORD(wParam) == BN_CLICKED) {
+            const std::wstring folder = app_dir() + L"\\skins";
+            CreateDirectoryW(folder.c_str(), nullptr);
+            const INT_PTR result = reinterpret_cast<INT_PTR>(
+                ShellExecuteW(window, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+            if (result <= 32)
+                set_status(L"No se pudo abrir la carpeta skins.");
+            else
+                set_status(L"Carpeta skins abierta · copia aquí archivos MangoHud .conf.");
+            return 0;
+        }
         if (LOWORD(wParam) == ID_ENABLED && HIWORD(wParam) == BN_CLICKED) {
             g_enabled = SendMessageW(g_enabledCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
             if (g_enabled) {
@@ -1273,20 +1284,24 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
         BS_PUSHBUTTON | WS_TABSTOP, 907, 365, 88, 28, ID_REFRESH_SKINS);
     if (g_refreshSkins)
         SendMessageW(g_refreshSkins, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
+    g_openSkinsButton = make_child(L"BUTTON", L"ABRIR CARPETA",
+        BS_PUSHBUTTON | WS_TABSTOP, 907, 401, 88, 28, ID_OPEN_SKINS);
+    if (g_openSkinsButton)
+        SendMessageW(g_openSkinsButton, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
     refresh_skin_combo();
 
     g_enabledCheck = make_child(L"BUTTON", L"Overlay activado",
-        BS_AUTOCHECKBOX | WS_TABSTOP, 660, 414, 330, 30, ID_ENABLED);
+        BS_AUTOCHECKBOX | WS_TABSTOP, 660, 448, 330, 30, ID_ENABLED);
     HWND skinsHelp = make_child(L"STATIC",
-        L"Añade archivos .conf compatibles a la carpeta skins y pulsa ACTUALIZAR.",
-        SS_LEFT, 660, 455, 335, 38, 0);
+        L"Instala skins .conf compatibles desde la comunidad y pulsa ACTUALIZAR.",
+        SS_LEFT, 660, 488, 335, 38, 0);
     if (skinsHelp) SendMessageW(skinsHelp, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
     HWND presetHint = make_child(L"STATIC",
-        L"F10 · Cambiar perfil del HUD: Stream / Pro / Benchmark / FPS.",
-        SS_LEFT, 660, 510, 335, 40, 0);
+        L"F10 · Perfiles nativos: Stream / Pro / Hardware / Benchmark.",
+        SS_LEFT, 660, 540, 335, 40, 0);
     if (presetHint) SendMessageW(presetHint, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
-    HWND footer = make_child(L"STATIC", L"YORHUD  ·  MONITORIZACIÓN EN TIEMPO REAL",
-        SS_LEFT, 660, 580, 335, 22, 0);
+    HWND footer = make_child(L"STATIC", L"YORHUD  ·  WINDOWS PERFORMANCE OVERLAY",
+        SS_LEFT, 660, 604, 335, 22, 0);
     if (footer) SendMessageW(footer, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
 
     
