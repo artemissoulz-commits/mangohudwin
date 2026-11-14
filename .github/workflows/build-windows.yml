@@ -1,10 +1,14 @@
 
-name: MangoHud Windows - MSVC x64 (D3D11-D3D12-Vulkan)
+name: YORHUD Windows - MSVC x64 (D3D11-D3D12-Vulkan)
 
 on:
   push:
     branches:
       - windows-opengl-wgl
+      - windows-opengl-wgl-package-fix
+      - fix/opengl-control-attach-running-process
+      - fix/control-auto-focus-ui-sharp-logo
+      - fix/control-d3d11-12-autoload-ui-polish
   pull_request:
     branches:
       - main
@@ -26,6 +30,10 @@ jobs:
         with:
           python-version: '3.12'
 
+
+      - name: Install Pillow for YORHUD artwork
+        shell: pwsh
+        run: python -m pip install --upgrade pillow
 
       - name: Install glslang for shader compilation
         id: msys2
@@ -80,6 +88,12 @@ jobs:
           git -C source add --all
           git -C source -c user.name='GitHub Actions' -c user.email='actions@github.local' commit -m 'Source archive snapshot'
           git -C source tag v0.8.3
+
+      - name: Apply OpenGL WGL hook and launcher
+        shell: pwsh
+        working-directory: source
+        run: |
+          & "${env:GITHUB_WORKSPACE}/.github/windows-opengl/apply-opengl-patch.ps1"
 
 
       - name: Fix Winsock2 include order
@@ -269,6 +283,9 @@ jobs:
         shell: pwsh
         working-directory: source
         run: |
+          Write-Host '--- Windows static check definitions ---'
+          Get-Content -LiteralPath 'dev/check_windows_port.py'
+          Write-Host '--- Running static checks ---'
           python dev/check_windows_port.py
 
           $workflowPath = Join-Path $env:GITHUB_WORKSPACE '.github\workflows\build-windows.yml'
@@ -281,7 +298,7 @@ jobs:
 
           foreach ($required in @(
             'MangoHud-Windows-Source-Port-v2.zip',
-            'MangoHud-Windows-v2-prueba-NO-INSTALAR',
+            'YORHUD-Windows-Preview-NO-INSTALAR',
             'ilammy/msvc-dev-cmd@v1',
             'meson compile -C build-msvc'
           )) {
@@ -325,6 +342,8 @@ jobs:
         run: |
           $expected = @(
             'build-msvc/src/MangoHud.dll',
+            'build-msvc/src/MangoHudLauncher.exe',
+            'build-msvc/src/YorHud.exe',
             'build-msvc/src/dxgi.dll',
             'build-msvc/src/MangoHud.exe',
             'build-msvc/src/MangoHud.x86_64.json'
@@ -341,18 +360,166 @@ jobs:
         working-directory: source
         run: |
           ./dev/package_windows.ps1 -BuildDirectory build-msvc -PackageDirectory package
-          $zip = 'MangoHud-Windows-v2-prueba-NO-INSTALAR.zip'
+
+          # Keep upstream MangoHud rendering untouched; YORHUD ships native .conf skins and F10 presets.
+          $skinsSource = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\skins'
+          $skinsDestination = Join-Path (Get-Location).Path 'package\skins'
+          $configDestination = Join-Path (Get-Location).Path 'package\config'
+          New-Item -ItemType Directory -Path $skinsDestination -Force | Out-Null
+          New-Item -ItemType Directory -Path $configDestination -Force | Out-Null
+          $skinFiles = @(
+            'YorHud.conf',
+            'Dark.conf',
+            'Mango.conf',
+            'Minimal.conf',
+            'Glass.conf'
+          )
+          foreach ($skin in $skinFiles) {
+            $skinPath = Join-Path $skinsSource $skin
+            if (-not (Test-Path -LiteralPath $skinPath)) { throw "Missing skin: $skinPath" }
+            $content = Get-Content -LiteralPath $skinPath -Raw
+            if ($content -notmatch '(?m)^preset=') {
+              $content = $content.TrimEnd() + "`n" + 'preset=-1,1,2,3,4' + "`n"
+            }
+            Set-Content -LiteralPath (Join-Path $skinsDestination $skin) -Value $content -Encoding UTF8
+          }
+          Copy-Item -LiteralPath (Join-Path $skinsSource 'YorHud.conf') -Destination (Join-Path $configDestination 'MangoHud.conf') -Force
+          $presetSource = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\presets.conf'
+          if (-not (Test-Path -LiteralPath $presetSource)) { throw "Missing native preset file: $presetSource" }
+          Copy-Item -LiteralPath $presetSource -Destination (Join-Path $configDestination 'presets.conf') -Force
+          $skinReadme = "`nYORHUD SKINS AND PROFILES`n- Choose YORHUD, Dark, Mango, Minimal or Glass in the appearance selector.`n- Add compatible MangoHud .conf files to skins and press ACTUALIZAR to discover them.`n- F10 cycles native MangoHud profiles: Stream, Pro, Hardware and Benchmark.`n- Profiles use presets.conf; skins use normal MangoHud config options. Themes that require custom renderer code need a separate port.`n- YORHUD is the default theme. Community configuration files are not bundled or modified.`n"
+          $packageReadme = 'package\README-EXPERIMENTAL.txt'
+          if (Test-Path -LiteralPath $packageReadme) {
+            Add-Content -LiteralPath $packageReadme -Value $skinReadme -Encoding UTF8
+          }
+          Write-Host 'Five native skins and four F10 preset profiles copied.'
+          foreach ($skin in $skinFiles) {
+            if (-not (Test-Path -LiteralPath (Join-Path $skinsDestination $skin))) {
+              throw "Skin was not packaged: $skin"
+            }
+          }
+          if (-not (Test-Path -LiteralPath 'package\config\MangoHud.conf')) {
+            throw 'Default MangoHud.conf missing after skin packaging.'
+          }
+          $zip = 'YORHUD-Windows-Preview-NO-INSTALAR.zip'
           if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
           Compress-Archive -Path 'package/*' -DestinationPath $zip -CompressionLevel Optimal
           if (-not (Test-Path -LiteralPath $zip)) { throw 'No se generó el ZIP de prueba' }
           Get-Item -LiteralPath $zip | Select-Object FullName, Length
 
+      - name: Verify YORHUD branded installer assets
+        shell: pwsh
+        run: |
+          $assetDir = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\assets'
+          foreach ($asset in @('YorHud.ico', 'YorHud-Wizard-1x.png', 'YorHud-Wizard-2x.png', 'YorHud-WizardSmall.png', 'YorHud-Character.jpg')) {
+            $assetPath = Join-Path $assetDir $asset
+            if (-not (Test-Path -LiteralPath $assetPath)) { throw "Missing YORHUD artwork: $asset" }
+            $item = Get-Item -LiteralPath $assetPath
+            if ($item.Length -lt 100) { throw "YORHUD artwork is too small: $asset" }
+            $item | Select-Object Name, Length
+          }
+          $jpg = [System.IO.File]::ReadAllBytes((Join-Path $assetDir 'YorHud-Character.jpg'))
+          if ($jpg[0] -ne 255 -or $jpg[1] -ne 216) { throw 'YORHUD mascot image is not a JPEG.' }
+
+      - name: Build Windows installer with Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\MangoHud-Windows.iss'
+          $outDir = Join-Path $env:GITHUB_WORKSPACE 'installer-output'
+          $packageDir = Join-Path $env:GITHUB_WORKSPACE 'source\package'
+          if (-not (Test-Path -LiteralPath $source)) { throw "No se encuentra el script Inno Setup: $source" }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'bin\MangoHud.dll'))) {
+            throw 'El paquete no contiene bin\MangoHud.dll'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'bin\MangoHudLauncher.exe'))) {
+            throw 'El paquete no contiene MangoHudLauncher.exe'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'YorHud.exe'))) {
+            throw 'El paquete no contiene YorHud.exe'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'YorHud.ico'))) {
+            throw 'El paquete no contiene YorHud.ico'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'YorHud-Character.jpg'))) {
+            throw 'El paquete no contiene la ilustración oficial de YORHUD'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'config\presets.conf'))) {
+            throw 'El paquete no contiene los perfiles nativos F10'
+          }
+          $assetDir = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\assets'
+          foreach ($asset in @('YorHud.ico', 'YorHud-Wizard-1x.png', 'YorHud-WizardSmall.png')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $assetDir $asset))) {
+              throw "Falta el recurso visual del instalador: $asset"
+            }
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'source\LICENSE'))) {
+            throw 'No se encuentra la licencia de MangoHud en el paquete de fuentes'
+          }
+          $controlSourcePath = Join-Path $env:GITHUB_WORKSPACE '.github\windows-installer\MangoHudControl.cpp'
+          $controlSource = [System.IO.File]::ReadAllText($controlSourcePath)
+          foreach ($required in @(
+            'case kExitMessage:',
+            'lstrcmpiW(commandLine, L"/shutdown")',
+            'Gdiplus::Image::FromFile',
+            'YorHud-Character.jpg',
+            'SendMessageTimeoutW(window, kExitMessage',
+            'SendMessageTimeoutW(window, WM_COMMAND',
+            'PostThreadMessageW(threadId, WM_QUIT, 0, 0);'
+          )) {
+            if (-not $controlSource.Contains($required)) {
+              throw "Falta el cierre seguro de MangoHud Control: $required"
+            }
+          }
+
+          $installerScript = [System.IO.File]::ReadAllText($source)
+          foreach ($required in @(
+            'function InitializeUninstall(): Boolean;',
+            "Exec(ControlExe, '/shutdown'",
+            'uninsrestartdelete',
+            'Type: filesandordirs; Name: "{app}\config"',
+            'Type: files; Name: "{app}\skin.ini"',
+            'WizardImageFile={#AssetDirectory}\YorHud-Wizard-1x.png,{#AssetDirectory}\YorHud-Wizard-2x.png',
+            'WizardSmallImageFile={#AssetDirectory}\YorHud-WizardSmall.png',
+            'WizardSmallImageBackColor=none',
+            'OutputBaseFilename=YorHud-Setup-x64',
+            'Filename: "{app}\YorHud.exe"'
+          )) {
+            if (-not $installerScript.Contains($required)) {
+              throw "Falta la limpieza de desinstalación: $required"
+            }
+          }
+
+          choco install innosetup --no-progress --yes
+          $isccCandidates = @(
+            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe')
+          )
+          $iscc = $isccCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $iscc) { throw 'No se encontró ISCC.exe después de instalar Inno Setup.' }
+          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+          & $iscc /Qp $source
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup falló con código $LASTEXITCODE" }
+          $setupExe = Join-Path $outDir 'YorHud-Setup-x64.exe'
+          if (-not (Test-Path -LiteralPath $setupExe)) { throw "No se generó el instalador esperado: $setupExe" }
+          Get-Item -LiteralPath $setupExe | Select-Object FullName, Length
+
+      - name: Upload Windows installer
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: YorHud-Setup-x64
+          path: installer-output/YorHud-Setup-x64.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
       - name: Upload experimental preview package
         if: success()
         uses: actions/upload-artifact@v7
         with:
-          name: MangoHud-Windows-v2-prueba-NO-INSTALAR
-          path: source/MangoHud-Windows-v2-prueba-NO-INSTALAR.zip
+          name: YORHUD-Windows-Preview-NO-INSTALAR
+          path: source/YORHUD-Windows-Preview-NO-INSTALAR.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -361,7 +528,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: MangoHud-Windows-v2-msvc-diagnostics
+          name: YORHUD-Windows-v2-msvc-diagnostics
           path: |
             source/build-msvc/meson-logs/meson-log.txt
             source/build-msvc/meson-logs/meson-log.json
