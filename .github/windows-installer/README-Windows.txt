@@ -1,106 +1,49 @@
-MANGOHUD PARA WINDOWS — PORT EXPERIMENTAL x64
-================================================
+YORHUD — WINDOWS PERFORMANCE OVERLAY
+=====================================
 
-Este instalador coloca los archivos del port de MangoHud para Windows en el
-equipo. Es una compilacion experimental, no una version oficial ni una version
-con todas las APIs verificadas en juegos reales.
+YORHUD es un panel de rendimiento para Windows basado en el motor MangoHud y adaptado al port de este repositorio. El producto incluye una interfaz propia, temas compatibles .conf, perfiles nativos y una identidad visual propia.
 
-INSTALACION Y DESINSTALACION
+INSTALACIÓN Y DESINSTALACIÓN
 ----------------------------
-Ejecuta MangoHud-Windows-Setup-x64.exe y sigue el asistente. Se instala por
-defecto en la carpeta local de tu usuario:
-%LOCALAPPDATA%\Programs\MangoHud
-Para quitarlo, usa Configuracion de Windows > Aplicaciones > Aplicaciones
-instaladas.
-El desinstalador cierra MangoHud Control y desactiva el HUD antes de borrar los archivos.
-Si un juego sigue abierto y mantiene MangoHud.dll o el proxy DXGI cargados, el
-desinstalador no cierra el juego: Windows elimina esos binarios bloqueados al
-cerrar el juego o, si siguen ocupados, al reiniciar el equipo.
+Ejecuta YorHud-Setup-x64.exe. Se instala por defecto en:
+%LOCALAPPDATA%\Programs\YorHud
 
+Para desinstalarlo, usa Configuración de Windows > Aplicaciones > Aplicaciones instaladas. El desinstalador cierra YORHUD y desactiva sus señales antes de borrar los archivos. No fuerza el cierre de los juegos. Si un juego mantiene una DLL cargada, Windows podrá eliminarla al cerrar el juego o, si sigue bloqueada, al reiniciar.
 
-PANEL DE CONTROL
-----------------
-Abre MangoHud Control desde el menu Inicio. El panel detecta aplicaciones
-abiertas y, con el seguimiento automatico activado, conecta el hook OpenGL al
-proceso x64 que esta en primer plano (por ejemplo Firestorm-Releasex64.exe).
-No inicia una segunda instancia de Firestorm ni usa MangoHud.exe como proceso
-auxiliar: carga bin\MangoHud.dll dentro del proceso seleccionado y controla
-el HUD con un evento por PID.
+PANEL Y SEGUIMIENTO
+-------------------
+Abre YORHUD desde el menú Inicio. El panel muestra la mascota oficial y sigue automáticamente la aplicación x64 compatible que está en primer plano. Puedes minimizarlo a la bandeja; no inicia una segunda instancia del juego ni termina procesos de usuario.
 
-El seguimiento automatico es fijo: no hay lista ni selector manual de aplicaciones.
-Para Direct3D 11/12 Control carga su proxy DXGI dentro del proceso activo; no copia ni reemplaza dxgi.dll en la carpeta del juego.
-Control activa OpenGL directamente y carga el proxy DXGI para aplicaciones Direct3D 11/12 ya abiertas.
-Pausar o salir de Control oculta el HUD; no cierra ni termina la aplicación. Haz
-doble clic en el icono de MangoHud para volver a abrir el panel; con clic
-derecho puedes cerrar MangoHud por completo.
+Para Direct3D 11/12 se carga el proxy DXGI dentro del proceso. Para OpenGL se carga el hook WGL. El port y las APIs siguen siendo experimentales y necesitan pruebas en aplicaciones reales.
 
-Control y la aplicacion objetivo deben ejecutarse con el mismo nivel de
-permisos. Si Firestorm se ejecuta como administrador, abre MangoHud Control
-tambien como administrador. Si el proceso ya tiene una MangoHud.dll antigua
-cargada, cierra Firestorm por completo y vuelve a abrirlo tras actualizar.
+TEMAS Y SKINS DE LA COMUNIDAD
+-----------------------------
+YORHUD incluye estos temas .conf:
+- YORHUD: paleta plata, grafito y rosa.
+- Dark: tema oscuro.
+- Mango: naranja y verde.
+- Minimal: lectura compacta.
+- Glass: panel translúcido.
 
-OPENGL (LANZADOR EXPERIMENTAL)
-------------------------------
-El lanzador opcional inicia un proceso x64 nuevo e inyecta MangoHud.dll antes
-de que la aplicacion empiece a ejecutarse. Para conectar el HUD a una aplicacion
-que ya esta abierta, usa MangoHud Control en lugar de este lanzador. Abre PowerShell y ejecuta:
+Puedes añadir más skins compatibles con MangoHud copiando sus archivos .conf a la carpeta:
+%LOCALAPPDATA%\Programs\YorHud\skins
 
-& "$env:LOCALAPPDATA\Programs\MangoHud\bin\MangoHudLauncher.exe" "C:\Ruta\A\TuAplicacionOpenGL.exe"
+Después pulsa ACTUALIZAR en el selector de apariencia. YORHUD descubre los archivos .conf automáticamente. Los archivos deben usar opciones que admita la versión de MangoHud incluida. Un tema externo que necesita un layout o un renderizador propio no se convierte en compatible por copiar solamente su .conf; habría que adaptar ese código al port.
 
-El lanzador aplica automaticamente config\MangoHud.conf al proceso que inicia.
-Sustituye la ruta por la del ejecutable real. No uses este lanzador con juegos
-protegidos, multijugador con anti-cheat ni software que prohiba la inyeccion.
+PERFILES NATIVOS — F10
+----------------------
+El HUD conserva el sistema nativo de presets de MangoHud. Pulsa F10 dentro de la aplicación para alternar los perfiles configurados en config\presets.conf:
+- Stream: lectura horizontal compacta.
+- Pro: estadísticas ampliadas.
+- Hardware: temperaturas, frecuencias y consumo.
+- Benchmark: métricas de frametime y estadísticas detalladas.
 
-VULKAN (PRUEBA AISLADA)
------------------------
-Para probar una aplicacion Vulkan sin registrar una capa global ni modificar
-el Registro de Windows, abre PowerShell y ejecuta:
+El archivo presets.conf se incluye con YORHUD y se selecciona dentro del proceso del juego mediante MANGOHUD_PRESETSFILE. Los perfiles no son skins de dibujo: cambian qué métricas y disposición muestra el HUD con las opciones nativas disponibles.
 
-& "$env:LOCALAPPDATA\Programs\MangoHud\scripts\Run-Vulkan-Test.ps1" -Executable "C:\Ruta\A\TuAplicacionVulkan.exe"
+PRUEBAS Y LIMITACIONES
+---------------------
+La compilación MSVC x64 y la generación del instalador se comprueban mediante CI. Una compilación correcta no demuestra que todas las APIs o métricas funcionen en todos los juegos. OpenGL, Vulkan y DirectX necesitan validación de ejecución en aplicaciones x64 compatibles. Algunas funciones pueden estar incompletas y la captura ETW avanzada de FPS puede requerir permisos elevados.
 
-La prueba configura las variables de entorno solo para ese proceso y sus
-procesos secundarios.
-
-DIRECTX 11 Y DIRECTX 12
------------------------
-Los componentes experimentales estan incluidos, pero la integracion DirectX
-todavia necesita validacion en aplicaciones reales. El archivo
-DirectX\dxgi.dll se instala dentro de la carpeta de MangoHud; NO se copia
-automaticamente junto a juegos y NO debe copiarse a System32 ni a carpetas de
-juegos protegidos o con anti-cheat.
-
-SKINS DEL HUD
---------------
-MangoHud Control incluye cinco temas seleccionables:
-
-- Dark: tema oscuro original del port y apariencia predeterminada.
-- Mango: identidad naranja y verde de MangoHud.
-- Minimal: diseño compacto original del port.
-- Glass: panel translucido original del port.
-- Animal Crossing: diseño personalizado con burbujas individuales redondeadas,
-  pequeñas sombras y una paleta pastel inspirada en Animal Crossing.
-
-Dark y Minimal se mantienen sin modificaciones. Animal Crossing no es solo
-una paleta: activa un estilo adicional del renderizador para separar los
-bloques de metricas en tarjetas suaves. Los cuatro temas originales conservan
-su comportamiento anterior.
-
-El tema elegido se guarda y se aplica al HUD conectado al recibir el siguiente
-frame; tambien queda seleccionado para los siguientes juegos. Los archivos
-de cada skin estan en la carpeta skins.
-
-CONFIGURACION
--------------
-La plantilla de configuracion esta en config\MangoHud.conf dentro de la
-carpeta de instalacion. El instalador conserva ese archivo cuando se actualiza
-una instalacion existente para no sobrescribir los cambios del usuario.
-
-ESTADO DE VALIDACION
---------------------
-La compilacion MSVC x64, el panel de control y la generacion del instalador se comprueban en CI. Una
-compilacion correcta no demuestra que todas las APIs funcionen en todos los
-juegos. OpenGL, Vulkan y DirectX deben seguir probandose en aplicaciones x64
-compatibles. Algunas funciones y metricas pueden estar incompletas. La captura ETW avanzada de FPS puede requerir permisos elevados; si no los tiene, el resto del overlay sigue funcionando.
-
-Proyecto del port Windows:
+PROYECTO
+--------
 https://github.com/artemissoulz-commits/mangohudwin
