@@ -1,5 +1,11 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+
+#ifndef CB_SETMINVISIBLE
+// Windows Vista+ combo-box message; some Windows SDK targets hide the symbol
+// unless their minimum _WIN32_WINNT is raised. Keep the API available here.
+#define CB_SETMINVISIBLE 0x1701
+#endif
 #include <shellapi.h>
 #include <tlhelp32.h>
 #include <cstdint>
