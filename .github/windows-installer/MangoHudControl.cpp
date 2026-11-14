@@ -903,6 +903,17 @@ void discover_skins() {
         if (entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
 
         const std::wstring file = entry.cFileName;
+        // Animal Crossing was deliberately removed from YORHUD.
+        // Do not rediscover it from a leftover/community .conf file.
+        std::wstring normalizedSkinName;
+        for (wchar_t c : lower(file)) {
+            if (std::iswalnum(static_cast<wint_t>(c)))
+                normalizedSkinName.push_back(c);
+        }
+        if (normalizedSkinName.find(L"animalcrossing") != std::wstring::npos ||
+            normalizedSkinName.find(L"acnh") != std::wstring::npos) {
+            continue;
+        }
         const size_t extension = file.find_last_of(L'.');
         if (extension == std::wstring::npos ||
             _wcsicmp(file.c_str() + extension, L".conf") != 0)
@@ -1134,9 +1145,16 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
         FillRect(dc, &client, g_bgBrush);
         if (g_heroImage && g_heroImage->GetLastStatus() == Gdiplus::Ok) {
             Gdiplus::Graphics graphics(dc);
+            // The committed mascot JPEG is 768x512. Draw it at native pixel
+            // dimensions instead of stretching it to the whole window, which
+            // was the source of the soft/blurred appearance.
+            graphics.SetPageUnit(Gdiplus::UnitPixel);
             graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+            graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
             graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
-            graphics.DrawImage(g_heroImage, 0, 0, client.right, client.bottom);
+            const INT heroWidth = static_cast<INT>(g_heroImage->GetWidth());
+            const INT heroHeight = static_cast<INT>(g_heroImage->GetHeight());
+            graphics.DrawImage(g_heroImage, 0, 0, heroWidth, heroHeight);
         }
 
         // A restrained dark glass panel sits over the deliberately empty right
