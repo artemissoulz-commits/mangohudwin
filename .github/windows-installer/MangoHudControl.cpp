@@ -12,7 +12,7 @@
 #include <utility>
 
 namespace {
-constexpr wchar_t kClass[] = L"MangoHudControl";
+constexpr wchar_t kClass[] = L"YorHudControl";
 constexpr UINT kTrayMessage = WM_APP + 7;
 constexpr UINT_PTR kTimerId = 1;
 constexpr UINT kExitMessage = WM_APP + 8;
@@ -90,7 +90,7 @@ bool ignored_process(const std::wstring& exeName) {
         L"lockapp.exe", L"dwm.exe", L"ctfmon.exe"
     };
     for (const wchar_t* item : ignored) if (e == item) return true;
-    return e.find(L"mangohud") != std::wstring::npos;
+    return e.find(L"mangohud") != std::wstring::npos || e.find(L"yorhud") != std::wstring::npos;
 }
 
 bool get_foreground_app(AppWindow& app) {
@@ -817,7 +817,7 @@ void add_tray() {
     g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     g_nid.uCallbackMessage = kTrayMessage;
     g_nid.hIcon = g_appIcon ? g_appIcon : LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
-    wcscpy_s(g_nid.szTip, L"MangoHud · seguimiento automático");
+    wcscpy_s(g_nid.szTip, L"YORHUD · seguimiento automático");
     g_tray = Shell_NotifyIconW(NIM_ADD, &g_nid) == TRUE;
 }
 
@@ -842,7 +842,7 @@ void hide_to_tray() {
 
 void tray_menu() {
     HMENU menu = CreatePopupMenu();
-    AppendMenuW(menu, MF_STRING, MENU_OPEN, L"Abrir MangoHud");
+    AppendMenuW(menu, MF_STRING, MENU_OPEN, L"Abrir YORHUD");
     AppendMenuW(menu, MF_STRING, MENU_TOGGLE, g_enabled ? L"Pausar HUD" : L"Reanudar HUD");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, MENU_EXIT, L"Salir completamente");
@@ -865,25 +865,67 @@ void toggle_enabled() {
 }
 
 struct SkinChoice {
-    const wchar_t* name;
-    const wchar_t* file;
+    std::wstring name;
+    std::wstring file;
 };
-constexpr SkinChoice kSkins[] = {
-    // Keep the four original Windows-port themes and add one renderer-backed style.
-    {L"Dark", L"Dark.conf"},
-    {L"Mango", L"Mango.conf"},
-    {L"Minimal", L"Minimal.conf"},
-    {L"Glass", L"Glass.conf"},
-    {L"Animal Crossing", L"Animal-Crossing.conf"}
-};
+std::vector<SkinChoice> g_skins;
+
+void discover_skins() {
+    g_skins.clear();
+
+    // Keep the four original Windows-port themes first.
+    const SkinChoice builtins[] = {
+        {L"Dark", L"Dark.conf"},
+        {L"Mango", L"Mango.conf"},
+        {L"Minimal", L"Minimal.conf"},
+        {L"Glass", L"Glass.conf"}
+    };
+    for (const auto& skin : builtins)
+        g_skins.push_back(skin);
+
+    // Community themes are plain MangoHud .conf files placed in the skins folder.
+    const std::wstring pattern = app_dir() + L"\\skins\\*.conf";
+    WIN32_FIND_DATAW entry{};
+    HANDLE search = FindFirstFileW(pattern.c_str(), &entry);
+    if (search == INVALID_HANDLE_VALUE) return;
+
+    do {
+        if (entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+
+        const std::wstring file = entry.cFileName;
+        const size_t extension = file.find_last_of(L'.');
+        if (extension == std::wstring::npos ||
+            _wcsicmp(file.c_str() + extension, L".conf") != 0)
+            continue;
+
+        const std::wstring foldedFile = lower(file);
+        const bool alreadyListed = std::any_of(g_skins.begin(), g_skins.end(),
+            [&foldedFile](const SkinChoice& skin) { return lower(skin.file) == foldedFile; });
+        if (alreadyListed) continue;
+
+        std::wstring displayName = file.substr(0, extension);
+        std::replace(displayName.begin(), displayName.end(), L'-', L' ');
+        std::replace(displayName.begin(), displayName.end(), L'_', L' ');
+        if (!displayName.empty())
+            g_skins.push_back({displayName, file});
+    } while (FindNextFileW(search, &entry));
+
+    FindClose(search);
+
+    // Sort only community entries, preserving the familiar built-in order.
+    if (g_skins.size() > std::size(builtins)) {
+        std::sort(g_skins.begin() + std::size(builtins), g_skins.end(),
+            [](const SkinChoice& a, const SkinChoice& b) { return lower(a.name) < lower(b.name); });
+    }
+}
 
 int load_skin_selection() {
-    wchar_t selected[32]{};
+    wchar_t selected[128]{};
     const std::wstring iniPath = app_dir() + L"\\skin.ini";
     GetPrivateProfileStringW(L"Skin", L"Name", L"Dark",
         selected, static_cast<DWORD>(std::size(selected)), iniPath.c_str());
-    for (int i = 0; i < static_cast<int>(std::size(kSkins)); ++i) {
-        if (_wcsicmp(selected, kSkins[i].name) == 0) return i;
+    for (int i = 0; i < static_cast<int>(g_skins.size()); ++i) {
+        if (_wcsicmp(selected, g_skins[i].name.c_str()) == 0) return i;
     }
     return 0;
 }
@@ -909,9 +951,9 @@ void request_skin_reload(DWORD pid) {
 }
 
 bool apply_skin(int index) {
-    if (index < 0 || index >= static_cast<int>(std::size(kSkins))) return false;
+    if (index < 0 || index >= static_cast<int>(g_skins.size())) return false;
     const std::wstring root = app_dir();
-    const std::wstring source = root + L"\\skins\\" + kSkins[index].file;
+    const std::wstring source = root + L"\\skins\\" + g_skins[index].file;
     const std::wstring destination = root + L"\\config\\MangoHud.conf";
     // Copy to a unique temporary file first, then replace the active config with
     // a same-directory rename. The game can therefore read either the old or
@@ -948,13 +990,13 @@ bool apply_skin(int index) {
     }
 
     const std::wstring iniPath = root + L"\\skin.ini";
-    WritePrivateProfileStringW(L"Skin", L"Name", kSkins[index].name, iniPath.c_str());
+    WritePrivateProfileStringW(L"Skin", L"Name", g_skins[index].name.c_str(), iniPath.c_str());
 
     if (g_overlayPid && g_overlay && WaitForSingleObject(g_overlay, 0) == WAIT_TIMEOUT) {
         request_skin_reload(g_overlayPid);
-        set_status(L"Skin " + std::wstring(kSkins[index].name) + L" aplicada · recargando el HUD…");
+        set_status(L"Skin " + g_skins[index].name + L" aplicada · recargando el HUD…");
     } else {
-        set_status(L"Skin " + std::wstring(kSkins[index].name) + L" guardada · se aplicará al conectar");
+        set_status(L"Skin " + g_skins[index].name + L" guardada · se aplicará al conectar");
     }
     return true;
 }
@@ -1134,7 +1176,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     }
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
-    HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\MangoHudControlMutex");
+    HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\YorHudControlMutex");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         HWND previous = FindWindowW(kClass, nullptr);
         if (previous) ShowWindow(previous, SW_RESTORE);
@@ -1154,7 +1196,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
         DEFAULT_PITCH, L"Segoe UI");
 
-    const std::wstring iconPath = app_dir() + L"\\MangoHud.ico";
+    const std::wstring iconPath = app_dir() + L"\\YorHud.ico";
     // Request the 64x64 PNG frame directly; do not scale up a smaller system icon.
     g_appIcon = static_cast<HICON>(LoadImageW(nullptr, iconPath.c_str(), IMAGE_ICON,
         64, 64, LR_LOADFROMFILE | LR_DEFAULTCOLOR));
@@ -1170,7 +1212,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     wc.lpszClassName = kClass;
     if (!RegisterClassExW(&wc)) return 1;
 
-    g_main = CreateWindowExW(WS_EX_APPWINDOW, kClass, L"MangoHud",
+    g_main = CreateWindowExW(WS_EX_APPWINDOW, kClass, L"YORHUD",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, 520, 420,
         nullptr, nullptr, instance, nullptr);
@@ -1179,8 +1221,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     SendMessageW(g_main, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(g_appIcon));
     SendMessageW(g_main, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(g_appIcon));
 
-    make_child(L"STATIC", L"MangoHud", SS_LEFT, 108, 26, 360, 38, 0);
-    HWND subtitle = make_child(L"STATIC", L"MONITOR DE RENDIMIENTO", SS_LEFT, 110, 64, 360, 20, 0);
+    make_child(L"STATIC", L"YORHUD", SS_LEFT, 108, 26, 360, 38, 0);
+    HWND subtitle = make_child(L"STATIC", L"WINDOWS PERFORMANCE OVERLAY", SS_LEFT, 110, 64, 360, 20, 0);
     if (subtitle) SendMessageW(subtitle, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
 
     HWND statusCaption = make_child(L"STATIC", L"ESTADO DE CONEXIÓN", SS_LEFT, 54, 132, 410, 18, 0);
@@ -1197,19 +1239,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
         CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL,
         190, 236, 280, 170, ID_SKIN);
     if (g_skinCombo) {
-        for (const auto& skin : kSkins)
-            SendMessageW(g_skinCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(skin.name));
+        discover_skins();
+        for (const auto& skin : g_skins)
+            SendMessageW(g_skinCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(skin.name.c_str()));
         SendMessageW(g_skinCombo, CB_SETCURSEL, load_skin_selection(), 0);
     }
 
     g_enabledCheck = make_child(L"BUTTON", L"HUD activado",
         BS_AUTOCHECKBOX | WS_TABSTOP, 30, 292, 450, 30, ID_ENABLED);
-    HWND footer = make_child(L"STATIC", L"SEGUIMIENTO AUTOMÁTICO", SS_LEFT, 30, 330, 450, 18, 0);
+    HWND footer = make_child(L"STATIC", L"SKINS EXTERNAS: ARCHIVOS .CONF EN \\SKINS", SS_LEFT, 30, 330, 450, 18, 0);
     if (footer) SendMessageW(footer, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
 
     
     if (g_titleFont) {
-        HWND title = FindWindowExW(g_main, nullptr, L"STATIC", L"MangoHud");
+        HWND title = FindWindowExW(g_main, nullptr, L"STATIC", L"YORHUD");
         if (title) SendMessageW(title, WM_SETFONT, reinterpret_cast<WPARAM>(g_titleFont), TRUE);
     }
     SendMessageW(g_enabledCheck, BM_SETCHECK, BST_CHECKED, 0);
