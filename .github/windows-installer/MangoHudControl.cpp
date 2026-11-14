@@ -1340,8 +1340,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     if (skinCaption) SendMessageW(skinCaption, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
     g_skinCombo = make_child(L"COMBOBOX", L"",
         CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL,
-        232, 180, 248, 142, ID_SKIN);
+        232, 180, 248, 26, ID_SKIN);
     refresh_skin_combo();
+    // Keep the closed combo on one row; expand a six-item list only when opened.
+    SendMessageW(g_skinCombo, CB_SETMINVISIBLE, 6, 0);
 
     g_refreshSkins = make_child(L"BUTTON", L"ACTUALIZAR",
         BS_PUSHBUTTON | WS_TABSTOP, 232, 214, 120, 26, ID_REFRESH_SKINS);
