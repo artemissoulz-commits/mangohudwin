@@ -996,9 +996,9 @@ bool apply_skin(int index) {
             set_status(L"No se pudo leer el archivo de la skin.");
             return false;
         }
-        const std::string configText(
+        const std::string configText{
             std::istreambuf_iterator<char>(input),
-            std::istreambuf_iterator<char>());
+            std::istreambuf_iterator<char>()};
         input.close();
 
         if (configText.find("preset=") == std::string::npos) {
