@@ -1322,7 +1322,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     if (title && g_titleFont)
         SendMessageW(title, WM_SETFONT, reinterpret_cast<WPARAM>(g_titleFont), TRUE);
     HWND subtitle = make_child(L"STATIC", L"WINDOWS PERFORMANCE OVERLAY",
-        SS_LEFT | SS_ENDELLIPSIS, 274, 49, 204, 17, 0);
+        SS_LEFT | SS_ENDELLIPSIS, 274, 53, 204, 16, 0);
     if (subtitle) SendMessageW(subtitle, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
 
     HWND statusCaption = make_child(L"STATIC", L"ESTADO DE CONEXIÓN",
