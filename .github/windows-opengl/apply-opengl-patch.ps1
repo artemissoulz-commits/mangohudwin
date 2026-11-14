@@ -965,37 +965,34 @@ if (-not $d3d12Source.Contains('if (!d3d_overlay_enabled())')) {
     [System.IO.File]::WriteAllText($d3d12Path, $d3d12Source, [System.Text.UTF8Encoding]::new($false))
 }
 
-# Animal Crossing theme: draw each legacy-layout metric group as a rounded,
-# pastel bubble. This is a renderer change, not just a config palette.
+# Animal Crossing: chat-style speech bubbles with alternating tails, soft outlines and pastel category colors.
 $overlayPath = Join-Path $root 'src/overlay.cpp'
 $overlaySource = [System.IO.File]::ReadAllText($overlayPath)
-if (-not $overlaySource.Contains('MangoHudAnimalCrossingBubbles')) {
+if (-not $overlaySource.Contains('MangoHudAnimalCrossingChatBubbles')) {
     $spacingAnchor = '   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8,-3));'
     $spacingReplacement = @'
-   const bool mangoHudAnimalCrossingBubbles = params.round_corners >= 14.0f;
+   const bool mangoHudAnimalCrossingChatBubbles = params.round_corners >= 14.0f;
    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
-       mangoHudAnimalCrossingBubbles ? ImVec2(8, 4) : ImVec2(8, -3));
+       mangoHudAnimalCrossingChatBubbles ? ImVec2(9, 7) : ImVec2(8, -3));
 '@
     if (-not $overlaySource.Contains($spacingAnchor)) {
-        throw 'Animal Crossing spacing insertion point missing in overlay.cpp.'
+        throw 'Animal Crossing chat-bubble spacing insertion point missing in overlay.cpp.'
     }
     $overlaySource = $overlaySource.Replace($spacingAnchor, $spacingReplacement.TrimEnd())
 
     $loopPattern = 'HUDElements\.place\s*=\s*0;\s*for\s*\(auto&\s*func\s*:\s*HUDElements\.ordered_functions\)\s*\{[\s\S]*?horizontal_separator\(params\);\s*\}'
     $loopReplacement = @'
-        // MangoHudAnimalCrossingBubbles: draw one independent rounded card per metric block.
-        const bool mangoHudAnimalCrossingBubbles =
+        // MangoHudAnimalCrossingChatBubbles: one speech bubble per metric group.
+        const bool useChatBubbleLayout =
             real_params->round_corners >= 14.0f &&
             !real_params->enabled[OVERLAY_PARAM_ENABLED_horizontal];
-        bool mangoHudBubbleRowPrepared = false;
         HUDElements.place = 0;
         for (auto& func : HUDElements.ordered_functions) {
             if (!real_params->enabled[OVERLAY_PARAM_ENABLED_horizontal] &&
-                func.name != "exec" && !mangoHudBubbleRowPrepared)
+                func.name != "exec")
                 ImGui::TableNextRow();
 
-            mangoHudBubbleRowPrepared = false;
-            ImGuiTable* bubbleTable = mangoHudAnimalCrossingBubbles
+            ImGuiTable* bubbleTable = useChatBubbleLayout
                 ? ImGui::GetCurrentTable() : nullptr;
             const float bubbleTop = bubbleTable ? bubbleTable->RowPosY2 : 0.0f;
 
@@ -1004,47 +1001,90 @@ if (-not $overlaySource.Contains('MangoHudAnimalCrossingBubbles')) {
             if (bubbleTable && func.name != "exec") {
                 ImGui::TableNextRow();
                 const float bubbleBottom = bubbleTable->RowPosY1;
-                if (bubbleBottom - bubbleTop > 4.0f && bubbleTable->DrawSplitter) {
+                if (bubbleBottom - bubbleTop > 8.0f && bubbleTable->DrawSplitter) {
                     ImDrawList* drawList = ImGui::GetWindowDrawList();
                     const int previousChannel = bubbleTable->DrawSplitter->_Current;
                     bubbleTable->DrawSplitter->SetCurrentChannel(drawList, 0);
 
-                    const float left = bubbleTable->WorkRect.Min.x;
-                    const float right = bubbleTable->WorkRect.Max.x;
-                    const ImVec2 cardMin(left + 3.0f, bubbleTop + 1.0f);
-                    const ImVec2 cardMax(right - 3.0f, bubbleBottom - 1.0f);
                     static const ImU32 bubbleFills[] = {
-                        IM_COL32(248, 237, 211, 238),
-                        IM_COL32(225, 239, 215, 238),
-                        IM_COL32(221, 237, 243, 238),
-                        IM_COL32(247, 224, 207, 238),
-                        IM_COL32(235, 226, 244, 238)
+                        IM_COL32(232, 246, 222, 250), // leaf / GPU
+                        IM_COL32(255, 232, 219, 250), // peach / CPU
+                        IM_COL32(225, 241, 248, 250), // sky / memory
+                        IM_COL32(255, 244, 211, 250), // butter / FPS
+                        IM_COL32(241, 232, 249, 250)  // lilac / graphs
                     };
                     static const ImU32 bubbleAccents[] = {
-                        IM_COL32(187, 148, 91, 255),
-                        IM_COL32(123, 164, 112, 255),
-                        IM_COL32(108, 158, 180, 255),
-                        IM_COL32(201, 139, 111, 255),
-                        IM_COL32(155, 137, 183, 255)
+                        IM_COL32(103, 151, 91, 235),
+                        IM_COL32(196, 123, 99, 235),
+                        IM_COL32(91, 145, 169, 235),
+                        IM_COL32(190, 151, 63, 235),
+                        IM_COL32(145, 119, 174, 235)
                     };
-                    const size_t bubbleIndex = static_cast<size_t>(HUDElements.place % 5);
+
+                    size_t bubbleIndex = static_cast<size_t>(HUDElements.place % 5);
+                    if (func.name.find("gpu") != std::string::npos)
+                        bubbleIndex = 0;
+                    else if (func.name.find("cpu") != std::string::npos ||
+                             func.name.find("core") != std::string::npos)
+                        bubbleIndex = 1;
+                    else if (func.name.find("ram") != std::string::npos ||
+                             func.name.find("vram") != std::string::npos ||
+                             func.name.find("memory") != std::string::npos)
+                        bubbleIndex = 2;
+                    else if (func.name.find("fps") != std::string::npos ||
+                             func.name.find("frametime") != std::string::npos)
+                        bubbleIndex = 3;
+                    else if (func.name.find("graph") != std::string::npos)
+                        bubbleIndex = 4;
+
+                    const float left = bubbleTable->WorkRect.Min.x;
+                    const float right = bubbleTable->WorkRect.Max.x;
+                    const ImVec2 cardMin(left + 5.0f, bubbleTop + 2.0f);
+                    const ImVec2 cardMax(right - 5.0f, bubbleBottom - 2.0f);
+                    const float rounding = 17.0f;
+                    const bool tailOnRight = (HUDElements.place % 2) != 0;
+
+                    // The little speech tail alternates sides, like stacked chat messages.
+                    const ImVec2 tailA = tailOnRight
+                        ? ImVec2(cardMax.x - 37.0f, cardMax.y - 4.0f)
+                        : ImVec2(cardMin.x + 17.0f, cardMax.y - 4.0f);
+                    const ImVec2 tailB = tailOnRight
+                        ? ImVec2(cardMax.x - 16.0f, cardMax.y - 4.0f)
+                        : ImVec2(cardMin.x + 38.0f, cardMax.y - 4.0f);
+                    const ImVec2 tailTip = tailOnRight
+                        ? ImVec2(cardMax.x - 21.0f, cardMax.y + 5.5f)
+                        : ImVec2(cardMin.x + 22.0f, cardMax.y + 5.5f);
+
+                    const ImU32 shadow = IM_COL32(57, 78, 57, 27);
+                    drawList->AddTriangleFilled(
+                        ImVec2(tailA.x, tailA.y + 2.0f),
+                        ImVec2(tailB.x, tailB.y + 2.0f),
+                        ImVec2(tailTip.x, tailTip.y + 2.0f), shadow);
                     drawList->AddRectFilled(
-                        ImVec2(cardMin.x, cardMin.y + 1.5f),
-                        ImVec2(cardMax.x, cardMax.y + 1.5f),
-                        IM_COL32(72, 82, 60, 28), 10.0f);
-                    drawList->AddRectFilled(cardMin, cardMax,
-                        bubbleFills[bubbleIndex], 10.0f);
-                    drawList->AddRect(cardMin, cardMax,
-                        IM_COL32(255, 255, 255, 210), 10.0f,
-                        ImDrawFlags_RoundCornersAll, 1.0f);
+                        ImVec2(cardMin.x, cardMin.y + 2.0f),
+                        ImVec2(cardMax.x, cardMax.y + 2.0f),
+                        shadow, rounding, ImDrawFlags_RoundCornersAll);
+
+                    drawList->AddTriangleFilled(tailA, tailB, tailTip, bubbleFills[bubbleIndex]);
                     drawList->AddRectFilled(
-                        ImVec2(left + 7.0f, cardMin.y + 5.0f),
-                        ImVec2(left + 10.0f, cardMax.y - 5.0f),
-                        bubbleAccents[bubbleIndex], 2.0f);
+                        cardMin, cardMax, bubbleFills[bubbleIndex],
+                        rounding, ImDrawFlags_RoundCornersAll);
+                    drawList->AddRect(
+                        cardMin, cardMax, bubbleAccents[bubbleIndex],
+                        rounding, ImDrawFlags_RoundCornersAll, 1.15f);
+                    // A soft glossy edge gives the bubbles more depth than flat cards.
+                    drawList->AddLine(
+                        ImVec2(cardMin.x + 20.0f, cardMin.y + 1.5f),
+                        ImVec2(cardMax.x - 20.0f, cardMin.y + 1.5f),
+                        IM_COL32(255, 255, 255, 205), 1.0f);
+                    drawList->AddLine(tailA, tailTip, bubbleAccents[bubbleIndex], 1.15f);
+                    drawList->AddLine(tailTip, tailB, bubbleAccents[bubbleIndex], 1.15f);
+                    drawList->AddCircleFilled(
+                        ImVec2(tailTip.x + (tailOnRight ? 5.5f : -5.5f), tailTip.y - 1.0f),
+                        1.5f, bubbleAccents[bubbleIndex]);
 
                     bubbleTable->DrawSplitter->SetCurrentChannel(drawList, previousChannel);
                 }
-                mangoHudBubbleRowPrepared = true;
             }
 
             HUDElements.place += 1;
@@ -1056,7 +1096,7 @@ if (-not $overlaySource.Contains('MangoHudAnimalCrossingBubbles')) {
 '@
     $updatedOverlay = [regex]::Replace($overlaySource, $loopPattern, $loopReplacement.TrimEnd(), 1)
     if ($updatedOverlay -eq $overlaySource) {
-        throw 'Could not install Animal Crossing rounded-bubble metric layout.'
+        throw 'Could not install Animal Crossing chat-style speech-bubble layout.'
     }
     [System.IO.File]::WriteAllText($overlayPath, $updatedOverlay, [System.Text.UTF8Encoding]::new($false))
 }
