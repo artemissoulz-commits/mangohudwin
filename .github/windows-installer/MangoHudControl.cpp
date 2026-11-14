@@ -12,6 +12,7 @@
 #include <utility>
 #include <memory>
 #include <fstream>
+#include <filesystem>
 #include <gdiplus.h>
 
 namespace {
@@ -990,7 +991,7 @@ bool apply_skin(int index) {
     // Keep native F10 profiles available even when a community skin does not
     // define a preset list. The source .conf remains untouched.
     {
-        std::ifstream input(temporary, std::ios::binary);
+        std::ifstream input(std::filesystem::path(temporary), std::ios::binary);
         if (!input) {
             DeleteFileW(temporary.c_str());
             set_status(L"No se pudo leer el archivo de la skin.");
@@ -1002,7 +1003,7 @@ bool apply_skin(int index) {
         input.close();
 
         if (configText.find("preset=") == std::string::npos) {
-            std::ofstream output(temporary, std::ios::binary | std::ios::app);
+            std::ofstream output(std::filesystem::path(temporary), std::ios::binary | std::ios::app);
             if (!output) {
                 DeleteFileW(temporary.c_str());
                 set_status(L"No se pudieron añadir los perfiles nativos a la skin.");
