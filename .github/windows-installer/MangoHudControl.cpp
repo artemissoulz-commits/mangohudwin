@@ -880,6 +880,7 @@ void discover_skins() {
 
     // Keep the four original Windows-port themes first.
     const SkinChoice builtins[] = {
+        {L"YORHUD", L"YorHud.conf"},
         {L"Dark", L"Dark.conf"},
         {L"Mango", L"Mango.conf"},
         {L"Minimal", L"Minimal.conf"},
@@ -927,7 +928,7 @@ void discover_skins() {
 int load_skin_selection() {
     wchar_t selected[128]{};
     const std::wstring iniPath = app_dir() + L"\\skin.ini";
-    GetPrivateProfileStringW(L"Skin", L"Name", L"Dark",
+    GetPrivateProfileStringW(L"Skin", L"Name", L"YORHUD",
         selected, static_cast<DWORD>(std::size(selected)), iniPath.c_str());
     for (int i = 0; i < static_cast<int>(g_skins.size()); ++i) {
         if (_wcsicmp(selected, g_skins[i].name.c_str()) == 0) return i;
