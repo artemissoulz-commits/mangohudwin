@@ -1145,19 +1145,20 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
         FillRect(dc, &client, g_bgBrush);
         if (g_heroImage && g_heroImage->GetLastStatus() == Gdiplus::Ok) {
             Gdiplus::Graphics graphics(dc);
-            // Compact portrait crop: use the original character artwork without
-            // enlarging the source, keeping the control window at its old size.
+            // Tall portrait crop from the unchanged 1024x683 source artwork.
+            // The 206x376 destination fills almost the full client height while
+            // the high-resolution source is downsampled cleanly.
             graphics.SetPageUnit(Gdiplus::UnitPixel);
             graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
             graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
             graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
-            const Gdiplus::Rect heroBounds(8, 66, 206, 221);
-            graphics.DrawImage(g_heroImage, heroBounds, 0, 0, 460, 512,
+            const Gdiplus::Rect heroBounds(2, 2, 206, 376);
+            graphics.DrawImage(g_heroImage, heroBounds, 45, 0, 374, 683,
                 Gdiplus::UnitPixel);
         }
 
         // Compact right-hand control card; the main app remains 520x420.
-        RECT panel{222, 12, client.right - 12, client.bottom - 12};
+        RECT panel{218, 10, client.right - 10, client.bottom - 10};
         HGDIOBJ oldBrush = SelectObject(dc, g_cardBrush);
         HPEN panelPen = CreatePen(PS_SOLID, 1, RGB(118, 73, 105));
         HGDIOBJ oldPen = SelectObject(dc, panelPen);
@@ -1167,12 +1168,12 @@ LRESULT CALLBACK wndproc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
         DeleteObject(panelPen);
 
         if (g_appIcon)
-            DrawIconEx(dc, 236, 20, g_appIcon, 40, 40, 0, nullptr, DI_NORMAL);
+            DrawIconEx(dc, 232, 18, g_appIcon, 36, 36, 0, nullptr, DI_NORMAL);
 
         HPEN accentPen = CreatePen(PS_SOLID, 1, RGB(205, 112, 166));
         oldPen = SelectObject(dc, accentPen);
-        MoveToEx(dc, 236, 78, nullptr);
-        LineTo(dc, client.right - 26, 78);
+        MoveToEx(dc, 232, 72, nullptr);
+        LineTo(dc, client.right - 24, 72);
         SelectObject(dc, oldPen);
         DeleteObject(accentPen);
 
@@ -1271,7 +1272,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
 
     g_bgBrush = CreateSolidBrush(RGB(13, 11, 17));
     g_cardBrush = CreateSolidBrush(RGB(19, 15, 23));
-    g_titleFont = CreateFontW(-27, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+    g_titleFont = CreateFontW(-24, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
         DEFAULT_PITCH, L"Segoe UI");
     g_font = CreateFontW(-16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
@@ -1315,44 +1316,49 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     SendMessageW(g_main, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(g_appIcon));
     SendMessageW(g_main, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(g_appIcon));
 
-    HWND title = make_child(L"STATIC", L"YORHUD", SS_LEFT, 282, 19, 195, 34, 0);
+    // Compact 248px right column with consistent spacing. Short labels and
+    // end-ellipsis stop long dynamic text from colliding with adjacent controls.
+    HWND title = make_child(L"STATIC", L"YORHUD", SS_LEFT, 274, 18, 204, 32, 0);
     if (title && g_titleFont)
         SendMessageW(title, WM_SETFONT, reinterpret_cast<WPARAM>(g_titleFont), TRUE);
-    HWND subtitle = make_child(L"STATIC", L"WINDOWS PERFORMANCE OVERLAY", SS_LEFT, 283, 52, 198, 18, 0);
+    HWND subtitle = make_child(L"STATIC", L"WINDOWS PERFORMANCE OVERLAY",
+        SS_LEFT | SS_ENDELLIPSIS, 274, 49, 204, 17, 0);
     if (subtitle) SendMessageW(subtitle, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
 
-    HWND statusCaption = make_child(L"STATIC", L"ESTADO DE CONEXIÓN", SS_LEFT, 236, 91, 250, 17, 0);
+    HWND statusCaption = make_child(L"STATIC", L"ESTADO DE CONEXIÓN",
+        SS_LEFT, 232, 84, 248, 16, 0);
     if (statusCaption) SendMessageW(statusCaption, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
-    g_status = make_child(L"STATIC", L"Esperando una aplicación compatible…", SS_LEFT, 236, 112, 250, 30, ID_STATUS);
-    if (g_status) SendMessageW(g_status, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
-    HWND followHint = make_child(L"STATIC", L"El HUD sigue automáticamente la aplicación en primer plano.",
-        SS_LEFT, 236, 145, 250, 32, 0);
+    g_status = make_child(L"STATIC", L"Esperando una aplicación compatible…",
+        SS_LEFT | SS_ENDELLIPSIS, 232, 103, 248, 22, ID_STATUS);
+    if (g_status) SendMessageW(g_status, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
+    HWND followHint = make_child(L"STATIC", L"Detecta el juego en primer plano.",
+        SS_LEFT | SS_ENDELLIPSIS, 232, 127, 248, 18, 0);
     if (followHint) SendMessageW(followHint, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
 
-    HWND skinCaption = make_child(L"STATIC", L"APARIENCIA DEL HUD", SS_LEFT, 236, 190, 250, 17, 0);
+    HWND skinCaption = make_child(L"STATIC", L"APARIENCIA DEL HUD",
+        SS_LEFT, 232, 160, 248, 16, 0);
     if (skinCaption) SendMessageW(skinCaption, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
     g_skinCombo = make_child(L"COMBOBOX", L"",
         CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL,
-        236, 211, 250, 170, ID_SKIN);
+        232, 180, 248, 142, ID_SKIN);
+    refresh_skin_combo();
+
     g_refreshSkins = make_child(L"BUTTON", L"ACTUALIZAR",
-        BS_PUSHBUTTON | WS_TABSTOP, 236, 246, 118, 26, ID_REFRESH_SKINS);
+        BS_PUSHBUTTON | WS_TABSTOP, 232, 214, 120, 26, ID_REFRESH_SKINS);
     if (g_refreshSkins)
         SendMessageW(g_refreshSkins, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
     g_openSkinsButton = make_child(L"BUTTON", L"ABRIR CARPETA",
-        BS_PUSHBUTTON | WS_TABSTOP, 362, 246, 124, 26, ID_OPEN_SKINS);
+        BS_PUSHBUTTON | WS_TABSTOP, 360, 214, 120, 26, ID_OPEN_SKINS);
     if (g_openSkinsButton)
         SendMessageW(g_openSkinsButton, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
-    refresh_skin_combo();
 
     g_enabledCheck = make_child(L"BUTTON", L"Overlay activado",
-        BS_AUTOCHECKBOX | WS_TABSTOP, 236, 284, 250, 26, ID_ENABLED);
-    HWND skinsHelp = make_child(L"STATIC",
-        L"Añade archivos .conf compatibles a la carpeta skins.",
-        SS_LEFT, 236, 312, 250, 28, 0);
+        BS_AUTOCHECKBOX | WS_TABSTOP, 232, 250, 248, 24, ID_ENABLED);
+    HWND skinsHelp = make_child(L"STATIC", L"Añade skins .conf a la carpeta skins.",
+        SS_LEFT | SS_ENDELLIPSIS, 232, 279, 248, 18, 0);
     if (skinsHelp) SendMessageW(skinsHelp, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
-    HWND presetHint = make_child(L"STATIC",
-        L"F10 · Stream / Pro / Hardware / Benchmark.",
-        SS_LEFT, 236, 346, 250, 24, 0);
+    HWND presetHint = make_child(L"STATIC", L"F10 · Stream / Pro / Hardware / Benchmark",
+        SS_LEFT | SS_ENDELLIPSIS, 232, 307, 248, 18, 0);
     if (presetHint) SendMessageW(presetHint, WM_SETFONT, reinterpret_cast<WPARAM>(g_smallFont), TRUE);
 
     
