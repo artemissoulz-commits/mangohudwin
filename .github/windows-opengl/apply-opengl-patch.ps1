@@ -884,7 +884,8 @@ foreach ($header in @('#include <cstdlib>', '#include <string>')) {
 if (-not $sharedSource.Contains('set_installed_config_path')) {
     $configLoader = @'
 static void set_installed_config_path() {
-    if (std::getenv("MANGOHUD_CONFIGFILE")) return;
+    // Resolve each installed path independently. A user-supplied CONFIGFILE
+    // must not prevent YORHUD from supplying the native preset file.
 
     HMODULE selfModule = nullptr;
     if (!GetModuleHandleExW(
